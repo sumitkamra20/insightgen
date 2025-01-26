@@ -1,0 +1,8 @@
+venv/
+data/temp/
+*.log
+__pycache__/
+*.pyc
+.DS_Store
+insightgen_venv/
+.env
