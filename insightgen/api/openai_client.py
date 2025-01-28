@@ -72,7 +72,7 @@ def generate_headlines(image_folder: str, brand: str) -> List[str]:
 
             # Create message for OpenAI API
             response = client.chat.completions.create(
-                model="gpt-4o-mini", # Keep this model as this is the updated model
+                model="gpt-4o", # Keep this model as this is the updated model
                 messages=[
                     {
                         "role": "user",
@@ -90,7 +90,7 @@ def generate_headlines(image_folder: str, brand: str) -> List[str]:
                         ]
                     }
                 ],
-                max_tokens=100
+                max_tokens=300
             )
 
             headline = response.choices[0].message.content.strip()
