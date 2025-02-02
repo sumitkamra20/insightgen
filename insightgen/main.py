@@ -80,7 +80,7 @@ def generate_slide_headlines(images_dir: str, brand: str) -> bool:
         if headlines:
             logging.info(f"Successfully generated {len(headlines)} headlines!")
             for i, headline in enumerate(headlines, 1):
-                logging.info(f"Slide {i}: {headline}")
+                print(f"Slide {i}: {headline}")
             return True
         else:
             logging.error("Failed to generate headlines.")
@@ -95,19 +95,21 @@ def main():
     input_dir = "/Users/sumitkamra/code/sumitkamra20/insightgen/data/input"
     output_dir = os.path.join(os.path.dirname(input_dir), "output")
     images_dir = os.path.join(output_dir, "images")
-
+    """
     # Step 1: Create slide images
     success = create_slide_images(input_dir, output_dir, images_dir)
     if not success:
         return
 
-    # Step 2: Generate headlines (commented out for now)
     """
+
+    # Step 2: Generate headlines (commented out for now)
+
     brand = "Lifebuoy"
     success = generate_slide_headlines(images_dir, brand)
     if not success:
         return
-    """
+
 
 if __name__ == "__main__":
     main()

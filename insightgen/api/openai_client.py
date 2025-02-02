@@ -48,6 +48,7 @@ def generate_headlines(image_folder: str, brand: str) -> List[str]:
 
     Synthesize these into a clear, insightful headline that captures the main story and its business impact.
     Focus on actionable insights and quantitative findings when present.
+    Keep it limited to 25 words or less and use plain text.
     Capitalize only brand names and proper nouns.
     '''
 
