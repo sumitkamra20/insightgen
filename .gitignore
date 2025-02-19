@@ -7,3 +7,4 @@ __pycache__/
 insightgen_venv/
 .env
 data/
+test_venv/
