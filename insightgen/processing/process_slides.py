@@ -16,6 +16,60 @@ from pptx import Presentation
 import base64
 from pptx.enum.shapes import PP_PLACEHOLDER
 from typing import List, Dict, Union, Optional, BinaryIO, Tuple
+from PyPDF2 import PdfReader
+
+
+def validate_files(
+    pptx_content: bytes,
+    pdf_content: bytes,
+    pptx_filename: str,
+    pdf_filename: str
+) -> Tuple[List[str], bool, str]:
+    """
+    Validates files for format, slide count match, and filename match.
+
+    Args:
+        pptx_content: The PPTX file content as bytes
+        pdf_content: The PDF file content as bytes
+        pptx_filename: The name of the PPTX file
+        pdf_filename: The name of the PDF file
+
+    Returns:
+        Tuple containing:
+        - List of warning messages
+        - Boolean indicating if validation passed
+        - Error message (empty string if no errors)
+    """
+    warnings = []
+
+    # Check filenames
+    pptx_base = os.path.splitext(pptx_filename)[0]
+    pdf_base = os.path.splitext(pdf_filename)[0]
+
+    if pptx_base != pdf_base:
+        warnings.append(f"Filename mismatch: PPTX '{pptx_filename}' and PDF '{pdf_filename}' have different names")
+
+    # Validate PPTX format
+    try:
+        pptx_stream = BytesIO(pptx_content)
+        presentation = Presentation(pptx_stream)
+        pptx_slide_count = len(presentation.slides)
+    except Exception as e:
+        return warnings, False, f"Unsupported or corrupt PPTX format: {str(e)}"
+
+    # Validate PDF format and count pages using PyPDF2 (much faster than converting to images)
+    try:
+        pdf_stream = BytesIO(pdf_content)
+        pdf_reader = PdfReader(pdf_stream)
+        pdf_page_count = len(pdf_reader.pages)
+    except Exception as e:
+        return warnings, False, f"Unsupported or corrupt PDF format: {str(e)}"
+
+    # Check slide count match
+    if pptx_slide_count != pdf_page_count:
+        return warnings, False, f"Slide count mismatch: PPTX has {pptx_slide_count} slides, PDF has {pdf_page_count} pages. Please ensure both files have the same number of slides."
+
+    return warnings, True, ""
 
 
 def extract_slide_metadata(

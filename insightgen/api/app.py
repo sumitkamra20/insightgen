@@ -6,12 +6,13 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 import logging
 import json
 from datetime import datetime
 
 from insightgen.main import process_presentation
+from insightgen.processing.process_slides import validate_files, extract_slide_metadata
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -55,13 +56,37 @@ async def upload_and_process(
 
     try:
         # Read file contents
-        pptx_content = await pptx_file.read()
-        pdf_content = await pdf_file.read()
+        try:
+            pptx_content = await pptx_file.read()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid or corrupt PPTX file: {str(e)}")
+
+        try:
+            pdf_content = await pdf_file.read()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid or corrupt PDF file: {str(e)}")
+
+        # Validate files using the function from process_slides.py
+        warnings, is_valid, error_message = validate_files(
+            pptx_content=pptx_content,
+            pdf_content=pdf_content,
+            pptx_filename=pptx_file.filename,
+            pdf_filename=pdf_file.filename
+        )
+
+        # If validation failed, raise an exception
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_message)
+
+        # Reset file pointers
+        await pptx_file.seek(0)
+        await pdf_file.seek(0)
 
         # Initialize job status
         jobs[job_id] = {
             "status": "processing",
             "message": "Files uploaded, processing started",
+            "warnings": warnings,
             "output_file": None,
             "metrics": None,
             "created_at": datetime.now().isoformat(),
@@ -81,11 +106,16 @@ async def upload_and_process(
             few_shot_examples
         )
 
-        return {
+        response_data = {
             "job_id": job_id,
             "status": "processing",
             "message": "Files uploaded, processing started"
         }
+
+        if warnings:
+            response_data["warnings"] = warnings
+
+        return response_data
 
     except Exception as e:
         logging.error(f"Error in upload_and_process: {str(e)}")
@@ -104,6 +134,9 @@ def process_job(
     Process the job in the background.
     """
     try:
+        # Get existing warnings if any
+        warnings = jobs[job_id].get("warnings", [])
+
         # Process presentation
         result, metrics = process_presentation(
             pptx_file_content=pptx_content,
@@ -121,6 +154,7 @@ def process_job(
         jobs[job_id] = {
             "status": "completed",
             "message": "Processing completed successfully",
+            "warnings": warnings,  # Preserve warnings
             "output_filename": output_filename,
             "output_content": output_content,  # Store binary content
             "metrics": metrics,
@@ -131,9 +165,13 @@ def process_job(
 
     except Exception as e:
         logging.error(f"Error processing job {job_id}: {str(e)}")
+        # Get existing warnings if any
+        warnings = jobs[job_id].get("warnings", [])
+
         jobs[job_id] = {
             "status": "failed",
             "message": f"Processing failed: {str(e)}",
+            "warnings": warnings,  # Preserve warnings
             "output_filename": None,
             "output_content": None,
             "metrics": None,
@@ -208,3 +246,94 @@ async def list_jobs():
         job_list.append(job_info)
 
     return {"jobs": job_list}
+
+@app.post("/inspect-files/")
+async def inspect_files(
+    pptx_file: UploadFile = File(...),
+    pdf_file: UploadFile = File(...),
+):
+    """
+    Inspect PPTX and PDF files before processing to provide detailed information about the files.
+    """
+    try:
+        # Read file contents
+        try:
+            pptx_content = await pptx_file.read()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid or corrupt PPTX file: {str(e)}")
+
+        try:
+            pdf_content = await pdf_file.read()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid or corrupt PDF file: {str(e)}")
+
+        # Validate files
+        warnings, is_valid, error_message = validate_files(
+            pptx_content=pptx_content,
+            pdf_content=pdf_content,
+            pptx_filename=pptx_file.filename,
+            pdf_filename=pdf_file.filename
+        )
+
+        # Extract slide metadata
+        slide_data = {}
+        if is_valid:
+            try:
+                slide_data = extract_slide_metadata(
+                    pptx_file_content=pptx_content,
+                    pptx_filename=pptx_file.filename
+                )
+            except Exception as e:
+                logging.error(f"Error extracting slide metadata: {str(e)}")
+                warnings.append(f"Error analyzing slide structure: {str(e)}")
+
+        # Analyze slide data
+        inspection_results = {
+            "is_valid": is_valid,
+            "error_message": error_message,
+            "warnings": warnings,
+            "slide_stats": {}
+        }
+
+        if slide_data:
+            # Count header slides
+            header_slides = [slide_num for slide_num, data in slide_data.items()
+                            if not data.get("content_slide", True)]
+            header_slide_count = len(header_slides)
+
+            # Count content slides
+            content_slides = [slide_num for slide_num, data in slide_data.items()
+                             if data.get("content_slide", True)]
+            content_slide_count = len(content_slides)
+
+            # Count slides missing title placeholders
+            missing_placeholders = [slide_num for slide_num, data in slide_data.items()
+                                   if data.get("content_slide", True) and not data.get("has_placeholder", False)]
+            missing_placeholder_count = len(missing_placeholders)
+
+            inspection_results["slide_stats"] = {
+                "total_slides": len(slide_data),
+                "header_slides": {
+                    "count": header_slide_count,
+                    "slide_numbers": header_slides
+                },
+                "content_slides": {
+                    "count": content_slide_count,
+                    "slide_numbers": content_slides
+                },
+                "missing_placeholders": {
+                    "count": missing_placeholder_count,
+                    "slide_numbers": missing_placeholders
+                }
+            }
+
+            # Add warning if no header slides found
+            if header_slide_count == 0:
+                warnings.append("No header slides detected. Ensure header slides have layouts with names starting with 'HEADER'")
+                inspection_results["warnings"] = warnings
+
+        return inspection_results
+
+    except Exception as e:
+        logging.error(f"Error in inspect_files: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

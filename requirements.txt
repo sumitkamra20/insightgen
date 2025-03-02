@@ -6,6 +6,7 @@ python-dotenv==1.0.0
 python-pptx==0.6.22
 tqdm==4.66.1
 requests>=2.31.0
+PyPDF2>=3.0.0
 
 # OpenAI dependencies
 httpx>=0.23.0
