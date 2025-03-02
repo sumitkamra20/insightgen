@@ -7,7 +7,7 @@
 
 # Imports
 import os
-from pdf2image import convert_from_path
+from pdf2image import convert_from_path, convert_from_bytes
 import logging
 from io import BytesIO
 import shutil
@@ -15,30 +15,48 @@ from pathlib import Path
 from pptx import Presentation
 import base64
 from pptx.enum.shapes import PP_PLACEHOLDER
-from typing import List, Dict
+from typing import List, Dict, Union, Optional, BinaryIO, Tuple
 
 
-def extract_slide_metadata(input_folder: str) -> dict:
+def extract_slide_metadata(
+    input_folder: str = None,
+    pptx_file_content: bytes = None,
+    pptx_filename: str = None
+) -> dict:
     """
     Extracts metadata from each slide in a PPTX file.
 
     Args:
-        input_folder (str): Path to the folder containing the PPTX file.
+        input_folder (str, optional): Path to the folder containing the PPTX file.
+        pptx_file_content (bytes, optional): PPTX file content as bytes.
+        pptx_filename (str, optional): Name of the PPTX file when provided as bytes.
 
     Returns:
         dict: Dictionary storing slide metadata including layout, content status, placeholder availability,
               and placeholders for observations.
     """
-    # Find the PPTX file in the input folder
-    pptx_files = [f for f in os.listdir(input_folder) if f.endswith('.pptx')]
+    presentation = None
 
-    if not pptx_files:
-        raise FileNotFoundError("No PPTX file found in the input folder.")
-    if len(pptx_files) > 1:
-        raise ValueError("Multiple PPTX files found. Please keep only one.")
+    # Handle file from disk
+    if input_folder:
+        # Find the PPTX file in the input folder
+        pptx_files = [f for f in os.listdir(input_folder) if f.endswith('.pptx')]
 
-    pptx_path = os.path.join(input_folder, pptx_files[0])
-    presentation = Presentation(pptx_path)
+        if not pptx_files:
+            raise FileNotFoundError("No PPTX file found in the input folder.")
+        if len(pptx_files) > 1:
+            raise ValueError("Multiple PPTX files found. Please keep only one.")
+
+        pptx_path = os.path.join(input_folder, pptx_files[0])
+        presentation = Presentation(pptx_path)
+
+    # Handle file from memory
+    elif pptx_file_content:
+        pptx_stream = BytesIO(pptx_file_content)
+        presentation = Presentation(pptx_stream)
+
+    else:
+        raise ValueError("Either input_folder or pptx_file_content must be provided.")
 
     slide_data = {}
 
@@ -63,18 +81,26 @@ def extract_slide_metadata(input_folder: str) -> dict:
             "key_observations": "",
             "slide_headline": "",
             "speaker_notes": "",
+            "filename": pptx_filename if pptx_filename else (pptx_files[0] if input_folder else "presentation.pptx")
         }
 
     return slide_data
 
-def generate_slide_images_base64(input_folder: str, slide_data: dict, img_format="JPEG", dpi=200) -> dict:
+def generate_slide_images_base64(
+    input_folder: str = None,
+    slide_data: dict = None,
+    pdf_file_content: bytes = None,
+    img_format: str = "JPEG",
+    dpi: int = 200
+) -> dict:
     """
     Converts PDF slides to images, encodes them in base64, and updates the slide_data dictionary.
     Excludes non-content slides (e.g., Header or Divider) from image processing.
 
     Args:
-        input_folder (str): Directory containing input PDF and PPTX files.
+        input_folder (str, optional): Directory containing input PDF and PPTX files.
         slide_data (dict): Dictionary storing slide metadata.
+        pdf_file_content (bytes, optional): PDF file content as bytes.
         img_format (str): Image format (default: JPEG).
         dpi (int): Resolution for image conversion.
 
@@ -83,27 +109,42 @@ def generate_slide_images_base64(input_folder: str, slide_data: dict, img_format
     """
     logging.info("Starting PDF to image conversion...")
 
-    # Validate input directory
-    if not os.path.exists(input_folder):
-        raise ValueError(f"Input directory does not exist: {input_folder}")
+    if not slide_data:
+        raise ValueError("slide_data must be provided")
 
-    # Find PDF file in the input folder
-    pdf_files = [f for f in os.listdir(input_folder) if f.endswith('.pdf')]
+    images = None
 
-    if not pdf_files:
-        logging.error("No PDF file found in the input folder.")
-        return slide_data
+    # Handle file from disk
+    if input_folder:
+        # Validate input directory
+        if not os.path.exists(input_folder):
+            raise ValueError(f"Input directory does not exist: {input_folder}")
 
-    if len(pdf_files) > 1:
-        logging.error("Multiple PDF files found. Please keep only one.")
-        return slide_data
+        # Find PDF file in the input folder
+        pdf_files = [f for f in os.listdir(input_folder) if f.endswith('.pdf')]
 
-    pdf_path = os.path.join(input_folder, pdf_files[0])
+        if not pdf_files:
+            logging.error("No PDF file found in the input folder.")
+            return slide_data
 
-    # Convert PDF to images (in-memory)
-    images = convert_from_path(pdf_path, dpi=dpi)
+        if len(pdf_files) > 1:
+            logging.error("Multiple PDF files found. Please keep only one.")
+            return slide_data
 
-    logging.info(f"PDF successfully converted to {len(images)} images.")
+        pdf_path = os.path.join(input_folder, pdf_files[0])
+
+        # Convert PDF to images (in-memory)
+        images = convert_from_path(pdf_path, dpi=dpi)
+        logging.info(f"PDF successfully converted to {len(images)} images from file.")
+
+    # Handle file from memory
+    elif pdf_file_content:
+        # Convert PDF bytes to images (in-memory)
+        images = convert_from_bytes(pdf_file_content, dpi=dpi)
+        logging.info(f"PDF successfully converted to {len(images)} images from bytes.")
+
+    else:
+        raise ValueError("Either input_folder or pdf_file_content must be provided.")
 
     # Process only content slides
     for i, image in enumerate(images, start=1):
@@ -130,29 +171,57 @@ def generate_slide_images_base64(input_folder: str, slide_data: dict, img_format
 
     return slide_data
 
-def insert_headlines_into_pptx(input_folder: str, output_folder: str, slide_data: dict, save_as_new: bool = True) -> str:
+def insert_headlines_into_pptx(
+    input_folder: str = None,
+    output_folder: str = None,
+    slide_data: dict = None,
+    pptx_file_content: bytes = None,
+    save_as_new: bool = True
+) -> Union[str, Tuple[str, bytes]]:
     """
     Inserts AI-generated headlines into slide title placeholders and observations into speaker notes.
 
     Args:
-        input_folder (str): Path to the folder containing the input PPTX file.
-        output_folder (str): Path to the folder where the modified PPTX file should be saved.
+        input_folder (str, optional): Path to the folder containing the input PPTX file.
+        output_folder (str, optional): Path to the folder where the modified PPTX file should be saved.
         slide_data (dict): Dictionary storing slide metadata, headlines, and observations.
+        pptx_file_content (bytes, optional): PPTX file content as bytes.
         save_as_new (bool): Whether to save as a new file.
 
     Returns:
-        str: Path to the saved PowerPoint file.
+        Union[str, Tuple[str, bytes]]:
+            - If input_folder and output_folder are provided: Path to the saved PowerPoint file.
+            - If pptx_file_content is provided: Tuple of (filename, bytes) of the modified presentation.
     """
     logging.info("Starting headline and observations insertion into PowerPoint...")
 
-    pptx_files = [f for f in os.listdir(input_folder) if f.endswith('.pptx')]
-    if not pptx_files:
-        raise FileNotFoundError("No PPTX file found in the input folder.")
-    if len(pptx_files) > 1:
-        raise ValueError("Multiple PPTX files found. Please keep only one.")
+    if not slide_data:
+        raise ValueError("slide_data must be provided")
 
-    pptx_path = os.path.join(input_folder, pptx_files[0])
-    presentation = Presentation(pptx_path)
+    presentation = None
+    original_filename = None
+
+    # Handle file from disk
+    if input_folder and output_folder:
+        pptx_files = [f for f in os.listdir(input_folder) if f.endswith('.pptx')]
+        if not pptx_files:
+            raise FileNotFoundError("No PPTX file found in the input folder.")
+        if len(pptx_files) > 1:
+            raise ValueError("Multiple PPTX files found. Please keep only one.")
+
+        pptx_path = os.path.join(input_folder, pptx_files[0])
+        presentation = Presentation(pptx_path)
+        original_filename = pptx_files[0]
+
+    # Handle file from memory
+    elif pptx_file_content:
+        pptx_stream = BytesIO(pptx_file_content)
+        presentation = Presentation(pptx_stream)
+        # Get filename from slide_data
+        original_filename = next(iter(slide_data.values()))["filename"]
+
+    else:
+        raise ValueError("Either input_folder and output_folder or pptx_file_content must be provided.")
 
     for slide_number, slide in enumerate(presentation.slides, start=1):
         slide_info = slide_data.get(slide_number, {})
@@ -181,15 +250,27 @@ def insert_headlines_into_pptx(input_folder: str, output_folder: str, slide_data
             notes_slide.notes_text_frame.text = observations
             logging.info(f"Slide {slide_number}: Observations added to speaker notes.")
 
-    # Ensure the output directory exists
-    os.makedirs(output_folder, exist_ok=True)
+    # Handle saving to disk
+    if input_folder and output_folder:
+        # Ensure the output directory exists
+        os.makedirs(output_folder, exist_ok=True)
 
-    # Save the modified presentation
-    original_filename = os.path.basename(pptx_path)
-    new_filename = original_filename.replace(".pptx", "_WITH_HEADLINES.pptx")
-    new_pptx_path = os.path.join(output_folder, new_filename)
+        # Save the modified presentation
+        new_filename = original_filename.replace(".pptx", "_WITH_HEADLINES.pptx")
+        new_pptx_path = os.path.join(output_folder, new_filename)
 
-    presentation.save(new_pptx_path)
-    logging.info(f"PowerPoint file saved with headlines and observations: {new_pptx_path}")
+        presentation.save(new_pptx_path)
+        logging.info(f"PowerPoint file saved with headlines and observations: {new_pptx_path}")
 
-    return new_pptx_path
+        return new_pptx_path
+
+    # Handle returning bytes
+    else:
+        output_stream = BytesIO()
+        presentation.save(output_stream)
+        output_stream.seek(0)
+        new_filename = original_filename.replace(".pptx", "_WITH_HEADLINES.pptx")
+
+        logging.info(f"PowerPoint file prepared with headlines and observations as bytes: {new_filename}")
+
+        return new_filename, output_stream.getvalue()

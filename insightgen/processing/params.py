@@ -87,9 +87,8 @@ Your job is to **generate a concise headline** that summarizes the main idea wit
 """
 
 # Default few-shot examples (can be overridden)
-DEFAULT_FEW_SHOT_EXAMPLES = '''
-Example 1:
-# Observation
+DEFAULT_FEW_SHOT_EXAMPLES = '''# Example 1:
+## Observation
 The slide presents "Brand Power by Income Class – SEC C" for the total male demographic in Vietnam, focusing on various beer brands.
 ### Brand Power Analysis:
 
@@ -163,6 +162,6 @@ The slide presents "Brand Power by Income Class – SEC C" for the total male de
 - **Bia Viet** and **Larue** have shown consistent growth in brand power.
 - **Heineken** has a slight long-term increase but a short-term decrease.
 
-# Headline:
+## Headline:
 Saigon Beer’s significant growth among SEC C on Brand Power is driven by all three levers in the long run, with Meaning and Salience fueling short-term gains—putting pressure on declining Tiger and Heineken. Tiger’s decline in SEC C is more pronounced in the long run due to weakening Difference and Salience
 '''
