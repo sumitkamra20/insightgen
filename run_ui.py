@@ -77,13 +77,6 @@ if inspect_button and pptx_file and pdf_file:
 if st.session_state.inspection_done and st.session_state.inspection_results:
     results = st.session_state.inspection_results
 
-    # Display validation status
-    if not results["is_valid"]:
-        st.error(f"❌ {results['error_message']}")
-        st.warning("Please fix the issues before proceeding.")
-    else:
-        st.success("✅ Basic validation passed! Files are compatible for processing.")
-
     # Display warnings
     if results["warnings"]:
         st.subheader("⚠️ Warnings")
