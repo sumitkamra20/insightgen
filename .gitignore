@@ -8,3 +8,12 @@ insightgen_venv/
 .env
 data/
 test_venv/
+api_test_venv/
+*.egg-info/
+all_sorted.txt
+*.egg
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
