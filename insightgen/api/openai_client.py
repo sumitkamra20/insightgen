@@ -337,7 +337,12 @@ def generate_observations_and_headlines(
         "start_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
 
-    load_dotenv()
+    # Try to load from .env file, but continue if it doesn't exist
+    try:
+        load_dotenv()
+    except:
+        pass  # Silently continue if .env file doesn't exist
+
     openai_api_key = os.getenv('OPENAI_API')
     if not openai_api_key:
         raise ValueError("Missing OPENAI_API key in environment variables.")

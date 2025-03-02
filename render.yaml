@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: insightgen-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn insightgen.api.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: OPENAI_API
+        sync: false
+      - key: API_PORT
+        value: 8000
+    healthCheckPath: /health

@@ -39,6 +39,10 @@ jobs = {}
 async def root():
     return {"message": "Welcome to InsightGen API", "version": "0.1.0"}
 
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
 @app.post("/upload-and-process/")
 async def upload_and_process(
     background_tasks: BackgroundTasks,

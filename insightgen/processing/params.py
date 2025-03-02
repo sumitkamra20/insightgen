@@ -3,7 +3,7 @@ import os
 ##################  VARIABLES  ##################
 
 # OpenAI API Key
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API")
 input_dir = "/Users/sumitkamra/code/sumitkamra20/insightgen/data/input"
 output_dir = "/Users/sumitkamra/code/sumitkamra20/insightgen/data/output"
 
@@ -163,5 +163,5 @@ The slide presents "Brand Power by Income Class – SEC C" for the total male de
 - **Heineken** has a slight long-term increase but a short-term decrease.
 
 ## Headline:
-Saigon Beer’s significant growth among SEC C on Brand Power is driven by all three levers in the long run, with Meaning and Salience fueling short-term gains—putting pressure on declining Tiger and Heineken. Tiger’s decline in SEC C is more pronounced in the long run due to weakening Difference and Salience
+Saigon Beer's significant growth among SEC C on Brand Power is driven by all three levers in the long run, with Meaning and Salience fueling short-term gains—putting pressure on declining Tiger and Heineken. Tiger's decline in SEC C is more pronounced in the long run due to weakening Difference and Salience
 '''

@@ -10,7 +10,11 @@ def generate_headlines(image_folder: str, brand: str) -> List[str]:
         List[str]: List of generated headlines for each slide
     """
     # Load environment variables and initialize OpenAI client
-    load_dotenv()
+    try:
+        load_dotenv()
+    except:
+        pass  # Silently continue if .env file doesn't exist
+
     client = OpenAI(api_key=os.getenv('OPENAI_API'))
 
     headlines = []
