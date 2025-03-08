@@ -60,7 +60,7 @@ Your job is to **generate a concise headline** that summarizes the main idea wit
 - **Where possible, establish causal links between metrics.**
   - Example: **"Brand Power decline is driven by a drop in Meaningful connection and lower Salience."**
   - Example: **"A drop in Salience is reflected in weaker TOM awareness."**
-  - Example: **"Tiger's decline in Meaningful connection has strengthened rivals like 333 and Saigon Beer."**
+  - Example: **"Tiger's decline on Meaning has led to strengthening of rivals like 333 and Saigon Beer."**
 
 #### **Identify Cross-Slide Insights Where Relevant**
 - **Slides might be connected**—trends in one slide may explain or be reflected in another.

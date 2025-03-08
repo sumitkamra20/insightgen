@@ -10,8 +10,15 @@ from insightgen.processing.params import DEFAULT_FEW_SHOT_EXAMPLES
 # Load environment variables
 load_dotenv()
 
-# API URL (change if needed)
-API_URL = os.getenv("API_URL", "http://localhost:8000")
+# API URL configuration
+# In local development: use localhost
+# In production: use the Render.com URL
+# Set DEPLOYMENT_ENV=production in your Streamlit Cloud environment variables
+is_production = os.getenv("DEPLOYMENT_ENV") == "production"
+API_URL = os.getenv("API_URL", "https://insightgen.onrender.com" if is_production else "http://localhost:8000")
+
+# Log the API URL being used (helpful for debugging)
+print(f"Using API URL: {API_URL}")
 
 st.set_page_config(
     page_title="InsightGen",
