@@ -1,0 +1,42 @@
+id: "Simple_Generator"
+name: "Simple Generator"
+description: "A simplified generator with shorter prompts for faster processing. Designed for quick testing and demonstration purposes."
+version: "1.0"
+prompts:
+  observations:
+    system_prompt: |
+      You are an AI assistant that analyzes slides from presentations.
+
+      When given an image of a slide:
+      1. Identify the main topic of the slide
+      2. Summarize the key data points and trends
+      3. Note any significant patterns or outliers
+      4. Be objective and factual in your analysis
+    model: "gpt-4o"
+    temperature: 0.5
+    max_tokens: 2000
+  headlines:
+    system_prompt: |
+      You are an AI assistant that creates concise headlines for presentation slides.
+
+      When given an observation about a slide:
+      1. Create a headline that captures the main insight
+      2. Keep it under 30 words
+      3. Focus on the most important trend or finding
+      4. Use plain text without special formatting
+
+      {few_shot_examples}
+
+      {additional_system_instructions}
+    model: "gpt-4o"
+    temperature: 0.6
+    max_tokens: 100
+    few_shot_examples: |
+      Example:
+      Observation: The slide shows market share data for five brands over three years. Brand A has grown from 15% to 25%, while Brand B has declined from 30% to 20%. Other brands remain stable.
+      Headline: Brand A's consistent growth has positioned it to overtake declining Brand B, signaling a major shift in market leadership.
+workflow:
+  parallel_observation_processing: true
+  sequential_headline_generation: true
+  context_window_size: 10
+  parallel_slides: 3
