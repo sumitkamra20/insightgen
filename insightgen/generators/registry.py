@@ -27,6 +27,7 @@ class GeneratorRegistry:
         """Initialize the generator registry."""
         self.generators = {}
         self.storage_mode = os.getenv("STORAGE_MODE", "local")
+        self.gcs_bucket = os.getenv("GCS_BUCKET", "")
         self._load_generators()
 
     def _load_generators(self) -> None:
@@ -34,14 +35,12 @@ class GeneratorRegistry:
         Load all generators based on the storage mode.
 
         For local storage, loads from the generators directory in the project root.
-        For cloud storage, would load from a GCS bucket (not implemented yet).
+        For cloud storage, loads from a GCS bucket specified by GCS_BUCKET env var.
         """
         if self.storage_mode == "local":
             self._load_local_generators()
         elif self.storage_mode == "gcs":
-            # Future implementation for Google Cloud Storage
-            logger.warning("GCS storage mode not implemented yet, falling back to local")
-            self._load_local_generators()
+            self._load_gcs_generators()
         else:
             logger.warning(f"Unknown storage mode: {self.storage_mode}, falling back to local")
             self._load_local_generators()
@@ -71,6 +70,48 @@ class GeneratorRegistry:
                     logger.error(f"Invalid generator structure in {file_path}")
             except Exception as e:
                 logger.error(f"Error loading generator from {file_path}: {str(e)}")
+
+    def _load_gcs_generators(self) -> None:
+        """Load generators from YAML files in a GCS bucket."""
+        if not self.gcs_bucket:
+            logger.error("GCS_BUCKET environment variable not set")
+            return
+
+        try:
+            # Import Google Cloud Storage client library
+            from google.cloud import storage
+
+            # Create a storage client
+            storage_client = storage.Client()
+
+            # Get the bucket
+            bucket = storage_client.bucket(self.gcs_bucket)
+
+            # List all blobs in the bucket with .yaml extension
+            blobs = bucket.list_blobs(prefix="generators/")
+
+            for blob in blobs:
+                if blob.name.endswith(".yaml"):
+                    try:
+                        # Download the blob as a string
+                        yaml_content = blob.download_as_string().decode("utf-8")
+
+                        # Parse the YAML content
+                        generator = yaml.safe_load(yaml_content)
+
+                        # Validate the generator structure
+                        if self._validate_generator(generator):
+                            generator_id = generator["id"]
+                            self.generators[generator_id] = generator
+                            logger.info(f"Loaded generator: {generator_id} from GCS: {blob.name}")
+                        else:
+                            logger.error(f"Invalid generator structure in GCS: {blob.name}")
+                    except Exception as e:
+                        logger.error(f"Error loading generator from GCS: {blob.name}: {str(e)}")
+        except ImportError:
+            logger.error("Google Cloud Storage library not installed. Run: pip install google-cloud-storage")
+        except Exception as e:
+            logger.error(f"Error accessing GCS bucket: {str(e)}")
 
     def _validate_generator(self, generator: Dict[str, Any]) -> bool:
         """
