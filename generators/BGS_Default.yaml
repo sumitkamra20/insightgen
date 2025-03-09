@@ -1,6 +1,6 @@
 id: "BGS_Default"
-name: "Brand Growth Study (Default)"
-description: "The default generator for Brand Growth Studies that analyzes market research slides and generates observations followed by headlines. Specialized for brand health tracking reports with focus on Brand Power metrics, competitive analysis, and market trends."
+name: "Brand Guidance Study (Default)"
+description: "The default generator for Brand Guidance Studies that analyzes market research slides and generates observations followed by headlines. Specialized for brand health tracking reports with focus on Brand Power metrics, competitive analysis, and market trends."
 version: "1.0"
 prompts:
   observations:

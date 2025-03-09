@@ -20,6 +20,21 @@ API_URL = os.getenv("API_URL", "https://insightgen.onrender.com" if is_productio
 # Log the API URL being used (helpful for debugging)
 print(f"Using API URL: {API_URL}")
 
+# Function to fetch available generators
+def fetch_generators():
+    try:
+        response = requests.get(f"{API_URL}/generators/")
+        if response.status_code == 200:
+            # Extract the generators list from the response
+            response_data = response.json()
+            return response_data.get("generators", [])
+        else:
+            st.error(f"Failed to fetch generators: {response.status_code}")
+            return []
+    except Exception as e:
+        st.error(f"Error fetching generators: {str(e)}")
+        return []
+
 st.set_page_config(
     page_title="InsightGen",
     page_icon="📊",
@@ -128,6 +143,23 @@ if st.session_state.inspection_done and st.session_state.inspection_results and 
     with st.form("processing_form"):
         st.subheader("Generate Insights")
 
+        # Fetch available generators
+        generators = fetch_generators()
+
+        # Create generator selection dropdown
+        generator_options = {g["name"]: g["id"] for g in generators} if generators else {"Brand Growth Study (Default)": "bgs_default"}
+        generator_names = list(generator_options.keys())
+
+        selected_generator_name = st.selectbox(
+            "Select Generator",
+            options=generator_names,
+            index=0,
+            help="Choose the type of analysis to perform"
+        )
+
+        # Get the selected generator ID
+        selected_generator_id = generator_options[selected_generator_name]
+
         user_prompt = st.text_area(
             "Prompt: Market, Brand Context and Additional Instructions",
             """Market: Vietnam;
@@ -165,6 +197,7 @@ Additional instructions: """,
             data = {
                 "user_prompt": user_prompt,
                 "context_window_size": str(context_window_size),
+                "generator_id": selected_generator_id,  # Add the selected generator ID
             }
 
             if few_shot_examples:
