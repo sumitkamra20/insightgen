@@ -12,7 +12,8 @@ def process_presentation(
     input_dir: Optional[str] = None,
     output_dir: Optional[str] = None,
     user_prompt: str = "",
-    context_window_size: int = 20,
+    generator_id: Optional[str] = None,
+    context_window_size: Optional[int] = None,
     few_shot_examples: Optional[str] = None,
     pptx_file_content: Optional[bytes] = None,
     pdf_file_content: Optional[bytes] = None,
@@ -29,8 +30,11 @@ def process_presentation(
         input_dir (str, optional): Directory containing input PDF and PPTX files
         output_dir (str, optional): Directory to save the output files
         user_prompt (str): User prompt containing market and brand information
-        context_window_size (int): Number of previous headlines to maintain in context (default: 20)
-        few_shot_examples (str, optional): Examples of observation-headline pairs for few-shot learning
+        generator_id (str, optional): ID of the generator to use. If None, uses the default generator.
+        context_window_size (int, optional): Number of previous headlines to maintain in context.
+            If None, uses the value from the generator's workflow.
+        few_shot_examples (str, optional): Examples of observation-headline pairs for few-shot learning.
+            If None, uses the examples from the generator.
         pptx_file_content (bytes, optional): PPTX file content as bytes
         pdf_file_content (bytes, optional): PDF file content as bytes
         pptx_filename (str, optional): Name of the PPTX file when provided as bytes
@@ -66,6 +70,7 @@ def process_presentation(
         slide_metadata, metrics = generate_observations_and_headlines(
             slide_metadata,
             user_prompt,
+            generator_id=generator_id,
             context_window_size=context_window_size,
             few_shot_examples=few_shot_examples
         )
@@ -91,6 +96,15 @@ def display_metrics(metrics: Dict):
     print("\n" + "="*50)
     print("PERFORMANCE METRICS")
     print("="*50)
+
+    # Display generator information if available
+    if "generator_name" in metrics:
+        print(f"Generator Information:")
+        print(f"  • Generator: {metrics['generator_name']}")
+        print(f"  • Generator ID: {metrics['generator_id']}")
+        print(f"  • Generator Version: {metrics['generator_version']}")
+        print()
+
     print(f"Processing Summary:")
     print(f"  • Total Slides: {metrics['total_slides']}")
     print(f"  • Content Slides Processed: {metrics['content_slides_processed']}")
@@ -134,11 +148,12 @@ def main():
     """
 
     try:
-        # Process with default context window size (20) and custom examples
+        # Process with the default generator and custom examples
         modified_pptx, metrics = process_presentation(
             str(input_dir),
             str(output_dir),
             user_prompt,
+            generator_id="BGS_Default",  # Use the BGS_Default generator
             few_shot_examples=custom_examples
         )
         logging.info(f"Successfully processed presentation. Output saved to: {modified_pptx}")

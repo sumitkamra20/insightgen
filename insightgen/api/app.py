@@ -49,11 +49,21 @@ async def upload_and_process(
     pptx_file: UploadFile = File(...),
     pdf_file: UploadFile = File(...),
     user_prompt: str = Form(...),
-    context_window_size: int = Form(20),
+    generator_id: Optional[str] = Form(None),
+    context_window_size: Optional[int] = Form(None),
     few_shot_examples: Optional[str] = Form(None),
 ):
     """
     Upload PPTX and PDF files and process them to generate insights and headlines.
+
+    Args:
+        background_tasks: FastAPI BackgroundTasks
+        pptx_file: The PPTX file to process
+        pdf_file: The PDF file to process
+        user_prompt: User prompt with market and brand information
+        generator_id: ID of the generator to use (optional)
+        context_window_size: Number of previous headlines to maintain in context (optional)
+        few_shot_examples: Optional examples of observation-headline pairs for few-shot learning
     """
     # Create unique job ID
     job_id = str(uuid.uuid4())
@@ -106,6 +116,7 @@ async def upload_and_process(
             pdf_content,
             pptx_file.filename,
             user_prompt,
+            generator_id,
             context_window_size,
             few_shot_examples
         )
@@ -131,11 +142,22 @@ def process_job(
     pdf_content: bytes,
     pptx_filename: str,
     user_prompt: str,
-    context_window_size: int,
+    generator_id: Optional[str],
+    context_window_size: Optional[int],
     few_shot_examples: Optional[str]
 ):
     """
     Process the job in the background.
+
+    Args:
+        job_id: The unique job ID
+        pptx_content: The PPTX file content
+        pdf_content: The PDF file content
+        pptx_filename: The name of the PPTX file
+        user_prompt: User prompt with market and brand information
+        generator_id: ID of the generator to use (optional)
+        context_window_size: Number of previous headlines to maintain in context (optional)
+        few_shot_examples: Optional examples of observation-headline pairs for few-shot learning
     """
     try:
         # Get existing warnings if any
@@ -147,6 +169,7 @@ def process_job(
             pdf_file_content=pdf_content,
             pptx_filename=pptx_filename,
             user_prompt=user_prompt,
+            generator_id=generator_id,
             context_window_size=context_window_size,
             few_shot_examples=few_shot_examples
         )
@@ -341,3 +364,50 @@ async def inspect_files(
     except Exception as e:
         logging.error(f"Error in inspect_files: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/generators/")
+async def list_generators():
+    """
+    List all available generators.
+
+    Returns:
+        A list of available generators with their metadata.
+    """
+    try:
+        from insightgen.generators.registry import GeneratorRegistry
+        registry = GeneratorRegistry()
+        generators = registry.list_generators()
+
+        return {
+            "generators": generators,
+            "default_generator_id": registry.get_default_generator_id()
+        }
+    except Exception as e:
+        logging.error(f"Error listing generators: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error listing generators: {str(e)}")
+
+@app.get("/generators/{generator_id}")
+async def get_generator(generator_id: str):
+    """
+    Get details of a specific generator.
+
+    Args:
+        generator_id: The ID of the generator to retrieve
+
+    Returns:
+        The generator details
+    """
+    try:
+        from insightgen.generators.registry import GeneratorRegistry
+        registry = GeneratorRegistry()
+        generator = registry.get_generator(generator_id)
+
+        if not generator:
+            raise HTTPException(status_code=404, detail=f"Generator with ID '{generator_id}' not found")
+
+        return generator
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error getting generator {generator_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting generator: {str(e)}")

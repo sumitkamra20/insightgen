@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 import concurrent.futures
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def encode_image_to_base64(image_path: str) -> str:
     """
@@ -32,7 +33,10 @@ def generate_observation_for_slide(
     slide: Dict[str, Any],
     client: OpenAI,
     user_prompt: str,
-    system_prompt: str
+    system_prompt: str,
+    model: str = "gpt-4o",
+    temperature: float = 0.6,
+    max_tokens: int = 4000
 ) -> Tuple[int, Dict[str, Any], bool, str]:
     """
     Generate observations for a single slide.
@@ -43,6 +47,9 @@ def generate_observation_for_slide(
         client (OpenAI): The OpenAI client
         user_prompt (str): User prompt with market and brand information
         system_prompt (str): System prompt for observation generation
+        model (str): The model to use for observation generation
+        temperature (float): The temperature for observation generation
+        max_tokens (int): The maximum number of tokens for observation generation
 
     Returns:
         Tuple[int, Dict[str, Any], bool, str]: A tuple containing:
@@ -68,9 +75,9 @@ def generate_observation_for_slide(
     # Generate Observations via ChatCompletion
     try:
         obs_response = client.chat.completions.create(
-            model="gpt-4o",
-            temperature=0.6,
-            max_tokens=4000,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {
@@ -106,6 +113,9 @@ def generate_observations_parallel(
     client: OpenAI,
     user_prompt: str,
     system_prompt: str,
+    model: str = "gpt-4o",
+    temperature: float = 0.6,
+    max_tokens: int = 4000,
     parallel_slides: int = 5
 ) -> Tuple[Dict[int, Dict[str, Any]], Dict[str, Any]]:
     """
@@ -116,6 +126,9 @@ def generate_observations_parallel(
         client (OpenAI): The OpenAI client
         user_prompt (str): User prompt with market and brand information
         system_prompt (str): System prompt for observation generation
+        model (str): The model to use for observation generation
+        temperature (float): The temperature for observation generation
+        max_tokens (int): The maximum number of tokens for observation generation
         parallel_slides (int): Number of slides to process in parallel (default: 5)
 
     Returns:
@@ -130,12 +143,12 @@ def generate_observations_parallel(
         "errors": 0,
     }
 
+    # Prepare slides for processing
+    slides_to_process = []
+
     print("\nGenerating Observations (Parallel Processing):")
     print("="*50)
-    print(f"Processing up to {parallel_slides} slides in parallel...")
 
-    # Prepare slides for parallel processing
-    slides_to_process = []
     for slide_number, slide in slide_data.items():
         # Skip non-content slides immediately
         if not slide.get("content_slide"):
@@ -159,47 +172,50 @@ def generate_observations_parallel(
         slides_to_process.append((slide_number, slide))
 
     # Process slides in parallel
-    with concurrent.futures.ThreadPoolExecutor(max_workers=parallel_slides) as executor:
-        # Submit all tasks
+    total_to_process = len(slides_to_process)
+    print(f"Processing {total_to_process} content slides...")
+
+    with ThreadPoolExecutor(max_workers=parallel_slides) as executor:
+        # Create a dictionary to store futures
         future_to_slide = {
             executor.submit(
                 generate_observation_for_slide,
                 slide_number,
-                slide.copy(),  # Create a copy to avoid race conditions
+                slide,
                 client,
                 user_prompt,
-                system_prompt
+                system_prompt,
+                model,
+                temperature,
+                max_tokens
             ): slide_number
             for slide_number, slide in slides_to_process
         }
 
         # Process results as they complete
-        for future in tqdm(concurrent.futures.as_completed(future_to_slide),
-                          total=len(future_to_slide),
-                          desc="Generating Observations"):
+        for i, future in enumerate(as_completed(future_to_slide), 1):
             slide_number = future_to_slide[future]
+            progress = (i / total_to_process) * 100
+
             try:
-                slide_num, updated_slide, success, message = future.result()
-                # Update the original slide_data with the results
-                slide_data[slide_num].update(updated_slide)
+                _, slide, success, message = future.result()
+                slide_data[slide_number] = slide
 
                 if success:
                     metrics["observations_generated"] += 1
-                    metrics["content_slides_processed"] += 1
-                    print(f"Slide {slide_num} - {message}")
+                    print(f"\rProcessing Slide {slide_number} [{progress:.1f}%] - {message}", end="")
                 else:
-                    if "Error" in message:
-                        metrics["errors"] += 1
-                        metrics["content_slides_processed"] += 1
-                    print(f"Slide {slide_num} - {message}")
+                    metrics["errors"] += 1
+                    print(f"\rProcessing Slide {slide_number} [{progress:.1f}%] - {message}", end="")
+
+                metrics["content_slides_processed"] += 1
 
             except Exception as e:
-                print(f"Slide {slide_number} - Error: {str(e)}")
-                logging.error(f"Slide {slide_number}: Unexpected error: {str(e)}")
-                slide_data[slide_number]["slide_observations"] = "Error in observations generation"
-                slide_data[slide_number]["status"] = "Error"
                 metrics["errors"] += 1
+                print(f"\rProcessing Slide {slide_number} [{progress:.1f}%] - Error: {str(e)[:50]}...", end="")
+                logging.error(f"Slide {slide_number}: Unexpected error: {str(e)}")
 
+    print("\n")  # Clear the progress line
     return slide_data, metrics
 
 
@@ -207,6 +223,9 @@ def generate_headlines_sequential(
     slide_data: Dict[int, Dict[str, Any]],
     client: OpenAI,
     formatted_headline_instructions: str,
+    model: str,
+    temperature: float,
+    max_tokens: int,
     context_window_size: int = 20
 ) -> Tuple[Dict[int, Dict[str, Any]], Dict[str, Any]]:
     """
@@ -216,6 +235,9 @@ def generate_headlines_sequential(
         slide_data (Dict[int, Dict[str, Any]]): Dictionary containing slide metadata with observations
         client (OpenAI): The OpenAI client
         formatted_headline_instructions (str): Formatted system instructions for headline generation
+        model (str): The model to use for headline generation
+        temperature (float): The temperature for headline generation
+        max_tokens (int): The maximum number of tokens for headline generation
         context_window_size (int): Number of previous headlines to maintain in context (default: 20)
 
     Returns:
@@ -259,9 +281,9 @@ def generate_headlines_sequential(
 
             # Generate headline with context
             headline_response = client.chat.completions.create(
-                model="gpt-4o",
-                temperature=0.7,
-                max_tokens=200,  # Headlines are short
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
                 messages=[
                     {"role": "system", "content": formatted_headline_instructions},
                     {"role": "user", "content": f"""
@@ -299,10 +321,11 @@ def generate_headlines_sequential(
 def generate_observations_and_headlines(
     slide_data: dict,
     user_prompt: str,
+    generator_id: str = None,
     additional_system_instructions: str = "",
-    context_window_size: int = 20,
+    context_window_size: int = None,
     few_shot_examples: str = None,
-    parallel_slides: int = 5
+    parallel_slides: int = None
 ) -> tuple[dict, dict]:
     """
     Main function that:
@@ -312,10 +335,14 @@ def generate_observations_and_headlines(
     Args:
         slide_data (dict): Dictionary containing slide metadata
         user_prompt (str): User prompt with market and brand information
+        generator_id (str, optional): ID of the generator to use. If None, uses the default generator.
         additional_system_instructions (str): Additional instructions for headline generation
-        context_window_size (int): Number of previous headlines to maintain in context (default: 20)
-        few_shot_examples (str): Optional examples of observation-headline pairs for few-shot learning
-        parallel_slides (int): Number of slides to process in parallel for observations (default: 5)
+        context_window_size (int, optional): Number of previous headlines to maintain in context.
+            If None, uses the value from the generator's workflow.
+        few_shot_examples (str, optional): Optional examples of observation-headline pairs for few-shot learning.
+            If None, uses the examples from the generator.
+        parallel_slides (int, optional): Number of slides to process in parallel for observations.
+            If None, uses the value from the generator's workflow.
 
     Returns:
         tuple[dict, dict]: A tuple containing:
@@ -350,14 +377,37 @@ def generate_observations_and_headlines(
     # Initialize the OpenAI client
     client = OpenAI(api_key=openai_api_key)
 
-    # Get system prompts from params
-    from insightgen.processing.params import OBSERVATIONS_SYSTEM_PROMPT, HEADLINE_SYSTEM_INSTRUCTIONS, DEFAULT_FEW_SHOT_EXAMPLES
+    # Load the generator from the registry
+    from insightgen.generators.registry import GeneratorRegistry
+    registry = GeneratorRegistry()
 
-    # Use provided examples or default ones
-    few_shot_examples = few_shot_examples or DEFAULT_FEW_SHOT_EXAMPLES
+    # If no generator_id is provided, use the default
+    if not generator_id:
+        generator_id = registry.get_default_generator_id()
+
+    # Get the generator
+    generator = registry.get_generator(generator_id)
+    if not generator:
+        raise ValueError(f"Generator with ID '{generator_id}' not found")
+
+    # Log which generator is being used
+    logging.info(f"Using generator: {generator['name']} (ID: {generator_id}, Version: {generator['version']})")
+
+    # Get generator configuration
+    obs_config = generator["prompts"]["observations"]
+    headline_config = generator["prompts"]["headlines"]
+    workflow = generator["workflow"]
+
+    # Use provided values or defaults from the generator
+    context_window_size = context_window_size or workflow.get("context_window_size", 20)
+    parallel_slides = parallel_slides or workflow.get("parallel_slides", 5)
+
+    # Use provided examples or default ones from the generator
+    generator_few_shot = headline_config.get("few_shot_examples", "")
+    few_shot_examples = few_shot_examples or generator_few_shot
 
     # Format the headline system instructions with examples and additional instructions
-    formatted_headline_instructions = HEADLINE_SYSTEM_INSTRUCTIONS.format(
+    formatted_headline_instructions = headline_config["system_prompt"].format(
         few_shot_examples=few_shot_examples,
         additional_system_instructions=additional_system_instructions
     )
@@ -367,7 +417,10 @@ def generate_observations_and_headlines(
         slide_data=slide_data,
         client=client,
         user_prompt=user_prompt,
-        system_prompt=OBSERVATIONS_SYSTEM_PROMPT,
+        system_prompt=obs_config["system_prompt"],
+        model=obs_config.get("model", "gpt-4o"),
+        temperature=obs_config.get("temperature", 0.6),
+        max_tokens=obs_config.get("max_tokens", 4000),
         parallel_slides=parallel_slides
     )
 
@@ -383,6 +436,9 @@ def generate_observations_and_headlines(
         slide_data=slide_data,
         client=client,
         formatted_headline_instructions=formatted_headline_instructions,
+        model=headline_config.get("model", "gpt-4o"),
+        temperature=headline_config.get("temperature", 0.7),
+        max_tokens=headline_config.get("max_tokens", 200),
         context_window_size=context_window_size
     )
 
@@ -390,6 +446,13 @@ def generate_observations_and_headlines(
     metrics.update({
         "headlines_generated": headline_metrics["headlines_generated"],
         "errors": metrics["errors"] + headline_metrics["errors"]
+    })
+
+    # Add generator info to metrics
+    metrics.update({
+        "generator_id": generator_id,
+        "generator_name": generator["name"],
+        "generator_version": generator["version"]
     })
 
     # Calculate final metrics
@@ -403,6 +466,7 @@ def generate_observations_and_headlines(
 
     # Log metrics
     logging.info("\nPerformance Metrics:")
+    logging.info(f"Generator: {metrics['generator_name']} (ID: {metrics['generator_id']}, Version: {metrics['generator_version']})")
     logging.info(f"Total Slides: {metrics['total_slides']}")
     logging.info(f"Content Slides Processed: {metrics['content_slides_processed']}")
     logging.info(f"Observations Generated: {metrics['observations_generated']}")
