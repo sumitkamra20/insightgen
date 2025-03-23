@@ -11,6 +11,7 @@ InsightGen is an AI-powered tool that automatically generates insightful headlin
 - Google Cloud Storage integration
 - Docker support for containerization
 - Cloud deployment ready
+- Auto deployment is working
 
 ## Prerequisites
 
