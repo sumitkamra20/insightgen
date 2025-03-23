@@ -12,10 +12,10 @@ load_dotenv()
 
 # API URL configuration
 # In local development: use localhost
-# In production: use the Render.com URL
+# In production: use the Cloud Run URL
 # Set DEPLOYMENT_ENV=production in your Streamlit Cloud environment variables
 is_production = os.getenv("DEPLOYMENT_ENV") == "production"
-API_URL = os.getenv("API_URL", "https://insightgen.onrender.com" if is_production else "http://localhost:8000")
+API_URL = os.getenv("API_URL", "https://insightgen-api-195411721870.us-central1.run.app" if is_production else "http://localhost:8080")
 
 # Log the API URL being used (helpful for debugging)
 print(f"Using API URL: {API_URL}")
