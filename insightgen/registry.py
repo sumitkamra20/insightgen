@@ -47,8 +47,8 @@ class GeneratorRegistry:
 
     def _load_local_generators(self) -> None:
         """Load generators from local YAML files in the generators directory."""
-        # Get the project root directory (two levels up from this file)
-        project_root = Path(__file__).parent.parent.parent
+        # Get the project root directory (one level up from this file)
+        project_root = Path(__file__).parent.parent
         generators_dir = project_root / "generators"
 
         if not generators_dir.exists():
