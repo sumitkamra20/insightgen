@@ -371,17 +371,14 @@ async def list_generators():
     List all available generators.
 
     Returns:
-        A list of available generators with their metadata.
+        List of available generators and the default generator ID
     """
     try:
-        from insightgen.generators.registry import GeneratorRegistry
+        from insightgen.registry import GeneratorRegistry
         registry = GeneratorRegistry()
         generators = registry.list_generators()
-
-        return {
-            "generators": generators,
-            "default_generator_id": registry.get_default_generator_id()
-        }
+        default_generator_id = registry.get_default_generator_id()
+        return {"generators": generators, "default_generator_id": default_generator_id}
     except Exception as e:
         logging.error(f"Error listing generators: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error listing generators: {str(e)}")
@@ -389,16 +386,13 @@ async def list_generators():
 @app.get("/generators/{generator_id}")
 async def get_generator(generator_id: str):
     """
-    Get details of a specific generator.
-
-    Args:
-        generator_id: The ID of the generator to retrieve
+    Get a generator by ID.
 
     Returns:
         The generator details
     """
     try:
-        from insightgen.generators.registry import GeneratorRegistry
+        from insightgen.registry import GeneratorRegistry
         registry = GeneratorRegistry()
         generator = registry.get_generator(generator_id)
 
