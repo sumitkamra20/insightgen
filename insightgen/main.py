@@ -136,25 +136,13 @@ def main():
     Competitors: 333, Saigon Beer, Hanoi Beer
     """
 
-    # Optional: Custom few-shot examples
-    custom_examples = """
-    Example 1:
-    Observations: Brand Power trends show Heineken maintaining leadership at 120 index points, while Tiger experiences decline from 115 to 108. Competitor 333 shows steady growth from 95 to 102 index points over the same period.
-    Headline: Heineken maintains category leadership despite competitive pressure, while Tiger's Brand Power decline creates opportunity for 333's continued growth momentum.
-
-    Example 2:
-    Observations: Meaningful scores reveal Tiger's emotional connection weakening among young urban consumers (25-35), dropping from 65% to 58% endorsement. Meanwhile, Saigon Beer gains ground in this segment, improving from 45% to 52%.
-    Headline: Tiger's weakening emotional connection with young urban consumers creates vulnerability, as Saigon Beer successfully strengthens its appeal in this crucial segment.
-    """
-
     try:
         # Process with the default generator and custom examples
         modified_pptx, metrics = process_presentation(
             str(input_dir),
             str(output_dir),
             user_prompt,
-            generator_id="BGS_Default",  # Use the BGS_Default generator
-            few_shot_examples=custom_examples
+            generator_id="BGS_Default"  # Use the BGS_Default generator
         )
         logging.info(f"Successfully processed presentation. Output saved to: {modified_pptx}")
 
