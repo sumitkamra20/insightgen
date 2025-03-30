@@ -4,4 +4,4 @@
 source insightgen_venv/bin/activate
 
 # Start the Streamlit UI
-streamlit run run_ui.py
+streamlit run user_interface/streamlit_ui.py

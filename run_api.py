@@ -17,4 +17,4 @@ port = int(os.getenv("PORT", os.getenv("API_PORT", 8000)))
 if __name__ == "__main__":
     print(f"Starting InsightGen API server on port {port}...")
     print(f"API documentation available at: http://localhost:{port}/docs")
-    uvicorn.run("insightgen.api.app:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("insightgen.app:app", host="0.0.0.0", port=port, reload=True)
