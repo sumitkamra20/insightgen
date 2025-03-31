@@ -370,7 +370,11 @@ def generate_observations_and_headlines(
     except:
         pass  # Silently continue if .env file doesn't exist
 
+    # Get API key and model configurations from environment variables
     openai_api_key = os.getenv('OPENAI_API')
+    observations_model = os.getenv('OPENAI_OBSERVATIONS_MODEL', 'gpt-4o')
+    headlines_model = os.getenv('OPENAI_HEADLINES_MODEL', 'gpt-4o')
+
     if not openai_api_key:
         raise ValueError("Missing OPENAI_API key in environment variables.")
 
@@ -418,7 +422,7 @@ def generate_observations_and_headlines(
         client=client,
         user_prompt=user_prompt,
         system_prompt=obs_config["system_prompt"],
-        model=obs_config.get("model", "gpt-4o"),
+        model=observations_model,
         temperature=obs_config.get("temperature", 0.6),
         max_tokens=obs_config.get("max_tokens", 4000),
         parallel_slides=parallel_slides
@@ -436,7 +440,7 @@ def generate_observations_and_headlines(
         slide_data=slide_data,
         client=client,
         formatted_headline_instructions=formatted_headline_instructions,
-        model=headline_config.get("model", "gpt-4o"),
+        model=headlines_model,
         temperature=headline_config.get("temperature", 0.7),
         max_tokens=headline_config.get("max_tokens", 200),
         context_window_size=context_window_size
