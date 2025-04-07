@@ -6,7 +6,7 @@ example_prompt: |
   Market: Vietnam;
   Client brands: Heineken, Tiger, Bia Viet;
   Competitors: 333, Saigon Beer, Hanoi Beer;
-  Additional instructions: Keep insights short and actionable
+  Additional instructions:
 prompts:
   observations:
     system_prompt: |

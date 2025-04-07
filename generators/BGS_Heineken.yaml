@@ -6,7 +6,7 @@ example_prompt: |
   Market: Vietnam;
   Client brands: Heineken, Tiger, Bia Viet, Larue, Bivina;
   Competitors: 333, Saigon Beer, Hanoi Beer;
-  Additional instructions: Focus on brand power trends across SEC segments
+  Additional instructions:
 prompts:
   observations:
     system_prompt: |
