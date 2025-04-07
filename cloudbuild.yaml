@@ -20,7 +20,7 @@ steps:
       - '--allow-unauthenticated'
       - '--memory=4Gi'
       - '--cpu=2'
-      - '--set-env-vars=STORAGE_MODE=gcs,GCS_BUCKET=${_GCS_BUCKET},OPENAI_API=${_OPENAI_API},OPENAI_OBSERVATIONS_MODEL=${_OPENAI_OBSERVATIONS_MODEL},OPENAI_HEADLINES_MODEL=${_OPENAI_HEADLINES_MODEL},PARALLEL_SLIDES=${_PARALLEL_SLIDES:-5}'
+      - '--set-env-vars=STORAGE_MODE=gcs,GCS_BUCKET=${_GCS_BUCKET},OPENAI_API=${_OPENAI_API},OPENAI_OBSERVATIONS_MODEL=${_OPENAI_OBSERVATIONS_MODEL},OPENAI_HEADLINES_MODEL=${_OPENAI_HEADLINES_MODEL},PARALLEL_SLIDES=${_PARALLEL_SLIDES}'
       - '--timeout=3600s'
       - '--service-account=cloud-build-service-account@$PROJECT_ID.iam.gserviceaccount.com'
 
