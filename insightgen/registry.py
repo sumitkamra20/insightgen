@@ -10,6 +10,13 @@ import yaml
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any
+from dotenv import load_dotenv
+
+# Load environment variables
+try:
+    load_dotenv()
+except:
+    pass  # Silently continue if .env file doesn't exist
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -28,7 +35,9 @@ class GeneratorRegistry:
         self.generators = {}
         self.storage_mode = os.getenv("STORAGE_MODE", "local")
         self.gcs_bucket = os.getenv("GCS_BUCKET", "")
+        logger.info(f"Initializing GeneratorRegistry with storage_mode={self.storage_mode}, gcs_bucket={self.gcs_bucket}")
         self._load_generators()
+        logger.info(f"Loaded {len(self.generators)} generators: {list(self.generators.keys())}")
 
     def _load_generators(self) -> None:
         """
@@ -38,8 +47,10 @@ class GeneratorRegistry:
         For cloud storage, loads from a GCS bucket specified by GCS_BUCKET env var.
         """
         if self.storage_mode == "local":
+            logger.info("Using local storage mode for generators")
             self._load_local_generators()
         elif self.storage_mode == "gcs":
+            logger.info("Using GCS storage mode for generators")
             self._load_gcs_generators()
         else:
             logger.warning(f"Unknown storage mode: {self.storage_mode}, falling back to local")
@@ -51,13 +62,20 @@ class GeneratorRegistry:
         project_root = Path(__file__).parent.parent
         generators_dir = project_root / "generators"
 
+        logger.info(f"Looking for generators in: {generators_dir.absolute()}")
+
         if not generators_dir.exists():
-            logger.warning(f"Generators directory not found: {generators_dir}")
+            logger.error(f"Generators directory not found: {generators_dir.absolute()}")
             return
+
+        # List all files in the directory
+        all_files = list(generators_dir.glob("*"))
+        logger.info(f"Found {len(all_files)} files in generators directory: {[f.name for f in all_files]}")
 
         # Load all YAML files in the generators directory
         for file_path in generators_dir.glob("*.yaml"):
             try:
+                logger.info(f"Attempting to load generator from: {file_path.name}")
                 with open(file_path, "r") as f:
                     generator = yaml.safe_load(f)
 
@@ -65,11 +83,11 @@ class GeneratorRegistry:
                 if self._validate_generator(generator):
                     generator_id = generator["id"]
                     self.generators[generator_id] = generator
-                    logger.info(f"Loaded generator: {generator_id} from {file_path.name}")
+                    logger.info(f"Successfully loaded generator: {generator_id} from {file_path.name}")
                 else:
-                    logger.error(f"Invalid generator structure in {file_path}")
+                    logger.error(f"Invalid generator structure in {file_path.name}")
             except Exception as e:
-                logger.error(f"Error loading generator from {file_path}: {str(e)}")
+                logger.error(f"Error loading generator from {file_path.name}: {str(e)}")
 
     def _load_gcs_generators(self) -> None:
         """Load generators from YAML files in a GCS bucket."""
@@ -123,7 +141,7 @@ class GeneratorRegistry:
         Returns:
             bool: True if the generator is valid, False otherwise
         """
-        required_fields = ["id", "name", "description", "version", "prompts", "workflow"]
+        required_fields = ["id", "name", "description", "version", "prompts"]
         for field in required_fields:
             if field not in generator:
                 logger.error(f"Missing required field in generator: {field}")
@@ -157,7 +175,43 @@ class GeneratorRegistry:
         Returns:
             The generator dictionary, or None if not found
         """
-        return self.generators.get(generator_id)
+        generator = self.generators.get(generator_id)
+
+        if generator:
+            # Add default workflow settings if needed
+            if "workflow" not in generator:
+                # Get parallel_slides from environment variable
+                try:
+                    parallel_slides = int(os.getenv("PARALLEL_SLIDES", "5"))
+                except (ValueError, TypeError):
+                    parallel_slides = 5
+                    logger.warning(f"Invalid PARALLEL_SLIDES value, using default: {parallel_slides}")
+
+                # Add the default workflow
+                generator["workflow"] = {
+                    "parallel_observation_processing": True,
+                    "sequential_headline_generation": True,
+                    "context_window_size": 20,
+                    "parallel_slides": parallel_slides
+                }
+                logger.info(f"Added default workflow settings to generator {generator_id}")
+            else:
+                # Enforce our required settings
+                workflow = generator["workflow"]
+                workflow["parallel_observation_processing"] = True
+                workflow["sequential_headline_generation"] = True
+                workflow["context_window_size"] = 20
+
+                # Get parallel_slides from environment variable
+                try:
+                    parallel_slides = int(os.getenv("PARALLEL_SLIDES", "5"))
+                except (ValueError, TypeError):
+                    parallel_slides = workflow.get("parallel_slides", 5)
+                    logger.warning(f"Invalid PARALLEL_SLIDES value, using existing or default: {parallel_slides}")
+
+                workflow["parallel_slides"] = parallel_slides
+
+        return generator
 
     def list_generators(self) -> List[Dict[str, str]]:
         """

@@ -1,8 +1,8 @@
 import os
 import logging
 from pathlib import Path
-from insightgen.processing.process_slides import extract_slide_metadata, generate_slide_images_base64, insert_headlines_into_pptx
-from insightgen.api.openai_client import generate_observations_and_headlines
+from insightgen.process_slides import extract_slide_metadata, generate_slide_images_base64, insert_headlines_into_pptx
+from insightgen.openai_client import generate_observations_and_headlines
 from typing import Tuple, Dict, Union, Optional, BinaryIO
 
 # Configure logging

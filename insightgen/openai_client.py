@@ -323,7 +323,7 @@ def generate_observations_and_headlines(
     user_prompt: str,
     generator_id: str = None,
     additional_system_instructions: str = "",
-    context_window_size: int = None,
+    context_window_size: int = 20,
     few_shot_examples: str = None,
     parallel_slides: int = None
 ) -> tuple[dict, dict]:
@@ -338,7 +338,7 @@ def generate_observations_and_headlines(
         generator_id (str, optional): ID of the generator to use. If None, uses the default generator.
         additional_system_instructions (str): Additional instructions for headline generation
         context_window_size (int, optional): Number of previous headlines to maintain in context.
-            If None, uses the value from the generator's workflow.
+            Defaults to 20.
         few_shot_examples (str, optional): Optional examples of observation-headline pairs for few-shot learning.
             If None, uses the examples from the generator.
         parallel_slides (int, optional): Number of slides to process in parallel for observations.
@@ -374,6 +374,7 @@ def generate_observations_and_headlines(
     openai_api_key = os.getenv('OPENAI_API')
     observations_model = os.getenv('OPENAI_OBSERVATIONS_MODEL', 'gpt-4o')
     headlines_model = os.getenv('OPENAI_HEADLINES_MODEL', 'gpt-4o')
+    parallel_slides = int(os.getenv('PARALLEL_SLIDES', '5'))  # Get from environment variable
 
     if not openai_api_key:
         raise ValueError("Missing OPENAI_API key in environment variables.")
@@ -400,28 +401,29 @@ def generate_observations_and_headlines(
     # Get generator configuration
     obs_config = generator["prompts"]["observations"]
     headline_config = generator["prompts"]["headlines"]
-    workflow = generator["workflow"]
 
-    # Use provided values or defaults from the generator
-    context_window_size = context_window_size or workflow.get("context_window_size", 20)
-    parallel_slides = parallel_slides or workflow.get("parallel_slides", 5)
+    # For observations, just use the system prompt directly
+    formatted_obs_instructions = obs_config["system_prompt"]
 
-    # Use provided examples or default ones from the generator
-    generator_few_shot = headline_config.get("few_shot_examples", "")
-    few_shot_examples = few_shot_examples or generator_few_shot
+    # Format the headline system prompt with knowledge base and examples
+    headline_knowledge_base = headline_config.get("knowledge_base", "")
+    headline_few_shot = headline_config.get("few_shot_examples", "")
 
-    # Format the headline system instructions with examples and additional instructions
-    formatted_headline_instructions = headline_config["system_prompt"].format(
-        few_shot_examples=few_shot_examples,
-        additional_system_instructions=additional_system_instructions
-    )
+    # Only include knowledge base and few-shot examples if they exist
+    formatted_headline_instructions = headline_config["system_prompt"]
+    if headline_knowledge_base:
+        formatted_headline_instructions += f"\n\nKnowledge Base:\n{headline_knowledge_base}"
+    if headline_few_shot:
+        formatted_headline_instructions += f"\n\nFew-shot Examples:\n{headline_few_shot}"
+    if additional_system_instructions:
+        formatted_headline_instructions += f"\n\nAdditional Instructions:\n{additional_system_instructions}"
 
     # Step 1: Generate observations in parallel
     slide_data, obs_metrics = generate_observations_parallel(
         slide_data=slide_data,
         client=client,
         user_prompt=user_prompt,
-        system_prompt=obs_config["system_prompt"],
+        system_prompt=formatted_obs_instructions,
         model=observations_model,
         temperature=obs_config.get("temperature", 0.6),
         max_tokens=obs_config.get("max_tokens", 4000),

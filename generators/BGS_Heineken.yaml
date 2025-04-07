@@ -1,5 +1,5 @@
-id: "BGS_Default"
-name: "Brand Guidance Study (Default)"
+id: "BGS_Heineken"
+name: "Brand Guidance Study (Heineken)"
 description: "The default generator for Brand Guidance Studies that analyzes market research slides and generates observations followed by headlines. Specialized for brand health tracking reports with focus on Brand Power metrics, competitive analysis, and market trends."
 version: "1.0"
 prompts:
@@ -30,7 +30,6 @@ prompts:
          - **Base your response solely on the factual information** available in the slide.
          - Do **not** add any information beyond what is provided in the image.
          - **Always check that both short-term and long-term trends are covered if timeframes exist.**
-    model: "gpt-4o"
     temperature: 0.6
     max_tokens: 4000
   headlines:
@@ -64,9 +63,10 @@ prompts:
       - If applicable, **link insights across slides** to **explain the cause-effect relationship.**
         - Example: **"Brand Power drop among young consumers aligns with weaker endorsement on key brand imageries."**
 
-      ### **Additional User Instructions (if provided):**
-      {additional_system_instructions}
+      #### **Brand Sets & Context**
+      - The user prompt will specify **which brands are client brands and which are competitors**.
 
+    knowledge_base: |
       ### **You Understand:**
       #### **Brand Power Framework**
       - **Brand Power (aka BP, Power, Demand Power, Brand Equity)**: Core brand equity metric consists of:
@@ -79,17 +79,12 @@ prompts:
       - **Trial & Regular Usage**: Trial is more relevant for smaller brands; regular usage reflects **consumer loyalty**.
       - **BUMO (Brand Used Most Often)**: Measures **loyal usage base**—critical for big brands.
 
-      #### **Brand Sets & Context**
-      - The user prompt will specify **which brands are client brands and which are competitors**.
-    model: "gpt-4o"
-    temperature: 0.7
-    max_tokens: 200
     few_shot_examples: |
       # Example 1:
       ## Observation
       The slide presents "Brand Power by Income Class – SEC C" for the total male demographic in Vietnam, focusing on various beer brands.
-      ### Brand Power Analysis:
 
+      ### Brand Power Analysis:
       1. **Tiger**:
          - **Current Brand Power**: 25.0%
          - **Short-term Change (vs. Previous Period)**: Decreased by 0.7%
@@ -162,8 +157,5 @@ prompts:
 
       ## Headline:
       Saigon Beer's significant growth among SEC C on Brand Power is driven by all three levers in the long run, with Meaning and Salience fueling short-term gains—putting pressure on declining Tiger and Heineken. Tiger's decline in SEC C is more pronounced in the long run due to weakening Difference and Salience
-workflow:
-  parallel_observation_processing: true
-  sequential_headline_generation: true
-  context_window_size: 20
-  parallel_slides: 5
+    temperature: 0.7
+    max_tokens: 200
