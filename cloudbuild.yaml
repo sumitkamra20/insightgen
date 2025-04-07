@@ -32,7 +32,7 @@ substitutions:
   _OPENAI_API: ''  # Set this in the build trigger
   _OPENAI_OBSERVATIONS_MODEL: 'gpt-4o'  # Default model for observations
   _OPENAI_HEADLINES_MODEL: 'gpt-4o'  # Default model for headlines
-  _PARALLEL_SLIDES: 5
+  _PARALLEL_SLIDES: '10'
 
 options:
   logging: CLOUD_LOGGING_ONLY
