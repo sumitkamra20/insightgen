@@ -54,6 +54,10 @@ if 'inspection_results' not in st.session_state:
     st.session_state.inspection_results = None
 if 'selected_generator_id' not in st.session_state:
     st.session_state.selected_generator_id = ""
+if 'current_prompt' not in st.session_state:
+    st.session_state.current_prompt = ""
+if 'generators_cache' not in st.session_state:
+    st.session_state.generators_cache = []
 
 # File upload section
 with st.form("upload_form", clear_on_submit=False):
@@ -68,10 +72,25 @@ with st.form("upload_form", clear_on_submit=False):
     # Only show the inspect button if both files are uploaded
     inspect_button = st.form_submit_button("Submit")
 
-# Function to update generator ID when selection changes
+# Function to update generator selection when changed
 def update_generator_selection():
     generator_name = st.session_state.generator_selector
-    st.session_state.selected_generator_id = generator_options[generator_name]
+    generator_id = generator_options[generator_name]
+
+    # Update the generator ID in session state
+    st.session_state.selected_generator_id = generator_id
+
+    # Update the prompt text for the selected generator
+    if generator_id:
+        # Use generators from cache if available
+        generators_list = st.session_state.generators_cache
+
+        # Find the selected generator in the list
+        for generator in generators_list:
+            if generator["id"] == generator_id:
+                # Set the example prompt from the generator
+                st.session_state.current_prompt = generator.get("example_prompt", "")
+                break
 
 if inspect_button and pptx_file and pdf_file:
     with st.spinner("Inspecting files..."):
@@ -151,6 +170,10 @@ if st.session_state.inspection_done and st.session_state.inspection_results and 
     # Fetch available generators
     generators = fetch_generators()
 
+    # Update generators cache
+    if generators:
+        st.session_state.generators_cache = generators
+
     # Create generator selection dropdown with "Select" as first option
     generator_options = {"Select a generator": ""} if generators else {"Brand Growth Study (Default)": "bgs_default"}
     if generators:
@@ -177,10 +200,7 @@ if st.session_state.inspection_done and st.session_state.inspection_results and 
     with st.form("processing_form"):
         user_prompt = st.text_area(
             "Prompt: Market, Brand Context and Additional Instructions",
-            """Market: Vietnam;
-Client brands: Heineken, Tiger, Bia Viet, Larue, Bivina;
-Competitors: 333, Saigon Beer, Hanoi Beer;
-Additional instructions: """,
+            st.session_state.current_prompt,  # Use the prompt from session state
             height=130,
         )
 

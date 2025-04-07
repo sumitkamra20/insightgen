@@ -2,6 +2,11 @@ id: "BGS_HNK_concise_headlines"
 name: "Brand Guidance Study (Heineken) - Concise Headlines"
 description: "A variant of the Heineken BGS generator that focuses on generating ultra-concise headlines (under 20 words) that capture the key message of the slide."
 version: "1.0"
+example_prompt: |
+  Market: Vietnam;
+  Client brands: Heineken, Tiger, Bia Viet;
+  Competitors: 333, Saigon Beer, Hanoi Beer;
+  Additional instructions: Keep insights short and actionable
 prompts:
   observations:
     system_prompt: |

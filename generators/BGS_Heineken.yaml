@@ -2,6 +2,11 @@ id: "BGS_Heineken"
 name: "Brand Guidance Study (Heineken)"
 description: "The default generator for Brand Guidance Studies that analyzes market research slides and generates observations followed by headlines. Specialized for brand health tracking reports with focus on Brand Power metrics, competitive analysis, and market trends."
 version: "1.0"
+example_prompt: |
+  Market: Vietnam;
+  Client brands: Heineken, Tiger, Bia Viet, Larue, Bivina;
+  Competitors: 333, Saigon Beer, Hanoi Beer;
+  Additional instructions: Focus on brand power trends across SEC segments
 prompts:
   observations:
     system_prompt: |

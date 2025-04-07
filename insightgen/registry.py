@@ -225,7 +225,8 @@ class GeneratorRegistry:
                 "id": g["id"],
                 "name": g["name"],
                 "description": g["description"],
-                "version": g["version"]
+                "version": g["version"],
+                "example_prompt": g.get("example_prompt", "")
             }
             for g in self.generators.values()
         ]
