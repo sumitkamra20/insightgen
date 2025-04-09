@@ -20,7 +20,8 @@ steps:
       - '--allow-unauthenticated'
       - '--memory=4Gi'
       - '--cpu=2'
-      - '--set-env-vars=STORAGE_MODE=gcs,GCS_BUCKET=${_GCS_BUCKET},OPENAI_API=${_OPENAI_API},OPENAI_OBSERVATIONS_MODEL=${_OPENAI_OBSERVATIONS_MODEL},OPENAI_HEADLINES_MODEL=${_OPENAI_HEADLINES_MODEL},PARALLEL_SLIDES=${_PARALLEL_SLIDES}'
+      - '--set-env-vars=STORAGE_MODE=gcs,GCS_BUCKET=${_GCS_BUCKET},OPENAI_OBSERVATIONS_MODEL=${_OPENAI_OBSERVATIONS_MODEL},OPENAI_HEADLINES_MODEL=${_OPENAI_HEADLINES_MODEL},PARALLEL_SLIDES=${_PARALLEL_SLIDES}'
+      - '--set-secrets=OPENAI_API=openai-api-key:latest'
       - '--timeout=3600s'
       - '--service-account=cloud-build-service-account@$PROJECT_ID.iam.gserviceaccount.com'
 
@@ -29,7 +30,6 @@ images:
 
 substitutions:
   _GCS_BUCKET: 'insightgen-generators'  # Default value, override in build trigger
-  _OPENAI_API: ''  # Set this in the build trigger
   _OPENAI_OBSERVATIONS_MODEL: 'gpt-4o'  # Default model for observations
   _OPENAI_HEADLINES_MODEL: 'gpt-4o'  # Default model for headlines
   _PARALLEL_SLIDES: '10'

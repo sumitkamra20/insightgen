@@ -3,7 +3,7 @@ services:
     name: insightgen-api
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python -m uvicorn insightgen.api.app:app --host 0.0.0.0 --port $PORT
+    startCommand: python -m uvicorn insightgen.app:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: OPENAI_API
         sync: false
