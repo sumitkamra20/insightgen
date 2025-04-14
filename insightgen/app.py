@@ -52,6 +52,7 @@ async def upload_and_process(
     generator_id: Optional[str] = Form(None),
     context_window_size: Optional[int] = Form(None),
     few_shot_examples: Optional[str] = Form(None),
+    batch_size: Optional[int] = Form(10),
 ):
     """
     Upload PPTX and PDF files and process them to generate insights and headlines.
@@ -64,6 +65,7 @@ async def upload_and_process(
         generator_id: ID of the generator to use (optional)
         context_window_size: Number of previous headlines to maintain in context (optional)
         few_shot_examples: Optional examples of observation-headline pairs for few-shot learning
+        batch_size: Number of slides to process in one batch (default: 10)
     """
     # Create unique job ID
     job_id = str(uuid.uuid4())
@@ -118,7 +120,8 @@ async def upload_and_process(
             user_prompt,
             generator_id,
             context_window_size,
-            few_shot_examples
+            few_shot_examples,
+            batch_size
         )
 
         response_data = {
@@ -144,7 +147,8 @@ def process_job(
     user_prompt: str,
     generator_id: Optional[str],
     context_window_size: Optional[int],
-    few_shot_examples: Optional[str]
+    few_shot_examples: Optional[str],
+    batch_size: int = 10
 ):
     """
     Process the job in the background.
@@ -158,6 +162,7 @@ def process_job(
         generator_id: ID of the generator to use (optional)
         context_window_size: Number of previous headlines to maintain in context (optional)
         few_shot_examples: Optional examples of observation-headline pairs for few-shot learning
+        batch_size: Number of slides to process in one batch (default: 10)
     """
     try:
         # Get existing warnings if any
@@ -171,7 +176,8 @@ def process_job(
             user_prompt=user_prompt,
             generator_id=generator_id,
             context_window_size=context_window_size,
-            few_shot_examples=few_shot_examples
+            few_shot_examples=few_shot_examples,
+            batch_size=batch_size
         )
 
         # Extract filename and content from result

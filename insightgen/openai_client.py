@@ -36,7 +36,8 @@ def generate_observation_for_slide(
     system_prompt: str,
     model: str = "gpt-4o",
     temperature: float = 0.6,
-    max_tokens: int = 4000
+    max_tokens: int = 4000,
+    base64_image: str = None
 ) -> Tuple[int, Dict[str, Any], bool, str]:
     """
     Generate observations for a single slide.
@@ -50,6 +51,7 @@ def generate_observation_for_slide(
         model (str): The model to use for observation generation
         temperature (float): The temperature for observation generation
         max_tokens (int): The maximum number of tokens for observation generation
+        base64_image (str, optional): Base64 encoded image of the slide. If None, tries to get from slide data.
 
     Returns:
         Tuple[int, Dict[str, Any], bool, str]: A tuple containing:
@@ -65,7 +67,10 @@ def generate_observation_for_slide(
         slide["status"] = "Skipped (Non-content slide)"
         return slide_number, slide, False, "Skipped (Header slide)"
 
-    base64_image = slide.get("image_base64", "")
+    # Get image from parameter or from slide data
+    if base64_image is None:
+        base64_image = slide.get("image_base64", "")
+
     if not base64_image:
         slide["slide_observations"] = ""
         slide["slide_headline"] = "Error: Missing slide image"
@@ -113,23 +118,27 @@ def generate_observations_parallel(
     client: OpenAI,
     user_prompt: str,
     system_prompt: str,
+    pdf_file_content: bytes = None,
     model: str = "gpt-4o",
     temperature: float = 0.6,
     max_tokens: int = 4000,
-    parallel_slides: int = 5
+    parallel_slides: int = 5,
+    batch_size: int = 10
 ) -> Tuple[Dict[int, Dict[str, Any]], Dict[str, Any]]:
     """
-    Generate observations for all content slides in parallel.
+    Generate observations for all content slides in parallel, processing images in batches.
 
     Args:
         slide_data (Dict[int, Dict[str, Any]]): Dictionary containing slide metadata
         client (OpenAI): The OpenAI client
         user_prompt (str): User prompt with market and brand information
         system_prompt (str): System prompt for observation generation
+        pdf_file_content (bytes, optional): PDF file content as bytes for batch processing
         model (str): The model to use for observation generation
         temperature (float): The temperature for observation generation
         max_tokens (int): The maximum number of tokens for observation generation
         parallel_slides (int): Number of slides to process in parallel (default: 5)
+        batch_size (int): Number of slides to convert to images at once (default: 10)
 
     Returns:
         Tuple[Dict[int, Dict[str, Any]], Dict[str, Any]]: A tuple containing:
@@ -143,79 +152,106 @@ def generate_observations_parallel(
         "errors": 0,
     }
 
-    # Prepare slides for processing
-    slides_to_process = []
+    # Import the batch image generation function
+    from insightgen.process_slides import generate_slide_images_batch
 
-    print("\nGenerating Observations (Parallel Processing):")
+    print("\nGenerating Observations (Batch Processing):")
     print("="*50)
 
-    for slide_number, slide in slide_data.items():
-        # Skip non-content slides immediately
-        if not slide.get("content_slide"):
-            print(f"Slide {slide_number} - Skipped (Header slide)")
-            slide["slide_observations"] = ""
-            slide["slide_headline"] = "HEADER SLIDE"
-            slide["status"] = "Skipped (Non-content slide)"
-            continue
+    # Get all content slides that need processing
+    content_slides = [(slide_number, slide) for slide_number, slide in slide_data.items()
+                    if slide.get("content_slide")]
 
-        # Check for missing images
-        if not slide.get("image_base64", ""):
-            print(f"Slide {slide_number} - Error (Missing image)")
-            logging.error(f"Slide {slide_number}: Missing base64 image.")
-            slide["slide_observations"] = ""
-            slide["slide_headline"] = "Error: Missing slide image"
-            slide["status"] = "Error"
-            metrics["errors"] += 1
-            continue
+    if not content_slides:
+        logging.warning("No content slides found for processing")
+        return slide_data, metrics
 
-        # Add to processing queue
-        slides_to_process.append((slide_number, slide))
+    # Process slides in batches to conserve memory
+    content_slide_count = len(content_slides)
+    print(f"Processing {content_slide_count} content slides in batches of {batch_size}...")
 
-    # Process slides in parallel
-    total_to_process = len(slides_to_process)
-    print(f"Processing {total_to_process} content slides...")
+    batch_indices = list(range(0, content_slide_count, batch_size))
+    for batch_idx in batch_indices:
+        batch_end = min(batch_idx + batch_size, content_slide_count)
+        current_batch = content_slides[batch_idx:batch_end]
 
-    with ThreadPoolExecutor(max_workers=parallel_slides) as executor:
-        # Create a dictionary to store futures
-        future_to_slide = {
-            executor.submit(
-                generate_observation_for_slide,
-                slide_number,
-                slide,
-                client,
-                user_prompt,
-                system_prompt,
-                model,
-                temperature,
-                max_tokens
-            ): slide_number
-            for slide_number, slide in slides_to_process
-        }
+        # Get slide numbers in this batch
+        batch_slide_numbers = [slide_number for slide_number, _ in current_batch]
+        min_slide_number = min(batch_slide_numbers)
+        max_slide_number = max(batch_slide_numbers)
 
-        # Process results as they complete
-        for i, future in enumerate(as_completed(future_to_slide), 1):
-            slide_number = future_to_slide[future]
-            progress = (i / total_to_process) * 100
+        print(f"\nProcessing batch {batch_idx//batch_size + 1}/{len(batch_indices)}: "
+              f"Slides {min_slide_number}-{max_slide_number}")
 
+        # Generate images for this batch only if pdf_file_content is provided
+        batch_images = {}
+        if pdf_file_content:
             try:
-                _, slide, success, message = future.result()
-                slide_data[slide_number] = slide
-
-                if success:
-                    metrics["observations_generated"] += 1
-                    print(f"\rProcessing Slide {slide_number} [{progress:.1f}%] - {message}", end="")
-                else:
-                    metrics["errors"] += 1
-                    print(f"\rProcessing Slide {slide_number} [{progress:.1f}%] - {message}", end="")
-
-                metrics["content_slides_processed"] += 1
-
+                # The PDF pages are 0-indexed but slide numbers are 1-indexed
+                batch_images = generate_slide_images_batch(
+                    pdf_file_content=pdf_file_content,
+                    batch_start=min_slide_number,
+                    batch_size=max_slide_number - min_slide_number + 1
+                )
+                print(f"Generated {len(batch_images)} images for this batch")
             except Exception as e:
-                metrics["errors"] += 1
-                print(f"\rProcessing Slide {slide_number} [{progress:.1f}%] - Error: {str(e)[:50]}...", end="")
-                logging.error(f"Slide {slide_number}: Unexpected error: {str(e)}")
+                logging.error(f"Error generating batch images: {str(e)}")
+                continue
 
-    print("\n")  # Clear the progress line
+        # Process this batch in parallel
+        slides_to_process = [(num, slide) for num, slide in current_batch]
+        total_in_batch = len(slides_to_process)
+
+        with ThreadPoolExecutor(max_workers=parallel_slides) as executor:
+            # Create a dictionary to store futures
+            future_to_slide = {}
+
+            for slide_number, slide in slides_to_process:
+                # Get the image for this slide from batch_images if available,
+                # or from slide_data if not using batch processing
+                slide_image = batch_images.get(slide_number, slide.get("image_base64", ""))
+
+                future = executor.submit(
+                    generate_observation_for_slide,
+                    slide_number,
+                    slide,
+                    client,
+                    user_prompt,
+                    system_prompt,
+                    model,
+                    temperature,
+                    max_tokens,
+                    slide_image  # Pass the image directly
+                )
+                future_to_slide[future] = slide_number
+
+            # Process results as they complete
+            for i, future in enumerate(as_completed(future_to_slide), 1):
+                slide_number = future_to_slide[future]
+                progress = (i / total_in_batch) * 100
+
+                try:
+                    _, slide, success, message = future.result()
+                    slide_data[slide_number] = slide
+
+                    if success:
+                        metrics["observations_generated"] += 1
+                        print(f"Slide {slide_number} [{progress:.1f}%] - {message}")
+                    else:
+                        metrics["errors"] += 1
+                        print(f"Slide {slide_number} [{progress:.1f}%] - {message}")
+
+                    metrics["content_slides_processed"] += 1
+
+                except Exception as e:
+                    metrics["errors"] += 1
+                    print(f"Slide {slide_number} [{progress:.1f}%] - Error: {str(e)[:50]}...")
+                    logging.error(f"Slide {slide_number}: Unexpected error: {str(e)}")
+
+        # Clear batch images to free memory
+        batch_images.clear()
+
+    print("\nObservation generation completed.")
     return slide_data, metrics
 
 
@@ -321,11 +357,13 @@ def generate_headlines_sequential(
 def generate_observations_and_headlines(
     slide_data: dict,
     user_prompt: str,
+    pdf_file_content: bytes = None,
     generator_id: str = None,
     additional_system_instructions: str = "",
     context_window_size: int = 20,
     few_shot_examples: str = None,
-    parallel_slides: int = None
+    parallel_slides: int = None,
+    batch_size: int = 10
 ) -> tuple[dict, dict]:
     """
     Main function that:
@@ -335,6 +373,7 @@ def generate_observations_and_headlines(
     Args:
         slide_data (dict): Dictionary containing slide metadata
         user_prompt (str): User prompt with market and brand information
+        pdf_file_content (bytes, optional): PDF file content as bytes for batch processing
         generator_id (str, optional): ID of the generator to use. If None, uses the default generator.
         additional_system_instructions (str): Additional instructions for headline generation
         context_window_size (int, optional): Number of previous headlines to maintain in context.
@@ -343,6 +382,7 @@ def generate_observations_and_headlines(
             If None, uses the examples from the generator.
         parallel_slides (int, optional): Number of slides to process in parallel for observations.
             If None, uses the value from the generator's workflow.
+        batch_size (int, optional): Number of slides to convert to images at once. Defaults to 10.
 
     Returns:
         tuple[dict, dict]: A tuple containing:
@@ -424,10 +464,12 @@ def generate_observations_and_headlines(
         client=client,
         user_prompt=user_prompt,
         system_prompt=formatted_obs_instructions,
+        pdf_file_content=pdf_file_content,
         model=observations_model,
         temperature=obs_config.get("temperature", 0.6),
         max_tokens=obs_config.get("max_tokens", 4000),
-        parallel_slides=parallel_slides
+        parallel_slides=parallel_slides,
+        batch_size=batch_size
     )
 
     # Update metrics with observation generation results

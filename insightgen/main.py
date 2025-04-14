@@ -1,7 +1,7 @@
 import os
 import logging
 from pathlib import Path
-from insightgen.process_slides import extract_slide_metadata, generate_slide_images_base64, insert_headlines_into_pptx
+from insightgen.process_slides import extract_slide_metadata, insert_headlines_into_pptx
 from insightgen.openai_client import generate_observations_and_headlines
 from typing import Tuple, Dict, Union, Optional, BinaryIO
 
@@ -17,14 +17,14 @@ def process_presentation(
     few_shot_examples: Optional[str] = None,
     pptx_file_content: Optional[bytes] = None,
     pdf_file_content: Optional[bytes] = None,
-    pptx_filename: Optional[str] = None
+    pptx_filename: Optional[str] = None,
+    batch_size: int = 10  # New parameter
 ) -> Tuple[Union[str, Tuple[str, bytes]], Dict]:
     """
     Main function to process the presentation:
     1. Extract slide metadata
-    2. Generate slide images and store in base64
-    3. Generate observations and headlines using OpenAI
-    4. Insert headlines and observations into the PPTX
+    2. Generate observations and headlines using OpenAI (with batch image processing)
+    3. Insert headlines and observations into the PPTX
 
     Args:
         input_dir (str, optional): Directory containing input PDF and PPTX files
@@ -38,6 +38,7 @@ def process_presentation(
         pptx_file_content (bytes, optional): PPTX file content as bytes
         pdf_file_content (bytes, optional): PDF file content as bytes
         pptx_filename (str, optional): Name of the PPTX file when provided as bytes
+        batch_size (int, optional): Number of slides to convert to images at once. Defaults to 10.
 
     Returns:
         Tuple[Union[str, Tuple[str, bytes]], Dict]: A tuple containing:
@@ -59,23 +60,29 @@ def process_presentation(
             pptx_filename=pptx_filename if using_memory_files else None
         )
 
-        # Step 2: Generate slide images and store in base64
-        slide_metadata = generate_slide_images_base64(
-            input_folder=input_dir if using_files_on_disk else None,
-            slide_data=slide_metadata,
-            pdf_file_content=pdf_file_content if using_memory_files else None
-        )
+        # If using files on disk, read the PDF content for batch processing
+        pdf_content_for_processing = pdf_file_content
+        if using_files_on_disk and not pdf_content_for_processing:
+            pdf_files = [f for f in os.listdir(input_dir) if f.endswith('.pdf')]
+            if pdf_files:
+                pdf_path = os.path.join(input_dir, pdf_files[0])
+                with open(pdf_path, 'rb') as f:
+                    pdf_content_for_processing = f.read()
+                logging.info(f"Read PDF file from disk: {pdf_path}")
 
-        # Step 3: Generate observations and headlines
+        # Step 2: Generate observations and headlines (with batch image processing)
+        logging.info("Generating observations and headlines with batch image processing")
         slide_metadata, metrics = generate_observations_and_headlines(
             slide_metadata,
             user_prompt,
+            pdf_file_content=pdf_content_for_processing,
             generator_id=generator_id,
             context_window_size=context_window_size,
-            few_shot_examples=few_shot_examples
+            few_shot_examples=few_shot_examples,
+            batch_size=batch_size
         )
 
-        # Step 4: Insert headlines and observations into PPTX
+        # Step 3: Insert headlines and observations into PPTX
         result = insert_headlines_into_pptx(
             input_folder=input_dir if using_files_on_disk else None,
             output_folder=output_dir if using_files_on_disk else None,

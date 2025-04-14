@@ -328,3 +328,58 @@ def insert_headlines_into_pptx(
         logging.info(f"PowerPoint file prepared with headlines and observations as bytes: {new_filename}")
 
         return new_filename, output_stream.getvalue()
+
+def generate_slide_images_batch(
+    pdf_file_content: bytes,
+    batch_start: int,
+    batch_size: int = 10,
+    img_format: str = "JPEG",
+    dpi: int = 200
+) -> Dict[int, str]:
+    """
+    Converts a batch of PDF pages to images and returns their base64 encodings.
+    Only processes a specified range of pages to conserve memory.
+
+    Args:
+        pdf_file_content (bytes): PDF file content as bytes
+        batch_start (int): Starting slide number (1-indexed)
+        batch_size (int): Number of slides to process in this batch
+        img_format (str): Image format (default: JPEG)
+        dpi (int): Resolution for image conversion
+
+    Returns:
+        Dict[int, str]: Dictionary mapping slide numbers to their base64 encoded images
+    """
+    logging.info(f"Converting batch of PDF pages to images (start={batch_start}, size={batch_size})...")
+
+    if not pdf_file_content:
+        raise ValueError("pdf_file_content must be provided")
+
+    # Convert only the specified batch of pages
+    try:
+        images = convert_from_bytes(
+            pdf_file_content,
+            dpi=dpi,
+            first_page=batch_start,
+            last_page=batch_start + batch_size - 1
+        )
+        logging.info(f"Converted {len(images)} pages from PDF content")
+    except Exception as e:
+        logging.error(f"Error converting PDF pages: {str(e)}")
+        raise
+
+    # Create dictionary of slide number to base64 image
+    batch_images = {}
+    for i, image in enumerate(images):
+        slide_number = batch_start + i  # 1-indexed slide numbers
+
+        # Convert image to base64
+        img_byte_arr = BytesIO()
+        image.save(img_byte_arr, format=img_format)
+        img_byte_arr.seek(0)
+        base64_image = base64.b64encode(img_byte_arr.read()).decode('utf-8')
+
+        batch_images[slide_number] = base64_image
+        logging.info(f"Slide {slide_number}: Image converted to base64")
+
+    return batch_images
