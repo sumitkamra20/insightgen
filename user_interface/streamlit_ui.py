@@ -58,6 +58,15 @@ if 'current_prompt' not in st.session_state:
     st.session_state.current_prompt = ""
 if 'generators_cache' not in st.session_state:
     st.session_state.generators_cache = []
+# Add new session state variables for job completion and metrics
+if 'job_completed' not in st.session_state:
+    st.session_state.job_completed = False
+if 'job_id' not in st.session_state:
+    st.session_state.job_id = None
+if 'job_metrics' not in st.session_state:
+    st.session_state.job_metrics = None
+if 'output_filename' not in st.session_state:
+    st.session_state.output_filename = None
 
 # File upload section
 with st.form("upload_form", clear_on_submit=False):
@@ -217,6 +226,12 @@ if st.session_state.inspection_done and st.session_state.inspection_results and 
 
     if submit_button:
         with st.spinner("Uploading files and starting processing..."):
+            # Reset job completion state for new submissions
+            st.session_state.job_completed = False
+            st.session_state.job_id = None
+            st.session_state.job_metrics = None
+            st.session_state.output_filename = None
+
             # Prepare form data
             files = {
                 "pptx_file": (pptx_file.name, pptx_file.getvalue(), "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
@@ -256,6 +271,7 @@ if st.session_state.inspection_done and st.session_state.inspection_results and 
                 # Process successful response
                 response_data = response.json()
                 job_id = response_data["job_id"]
+                st.session_state.job_id = job_id  # Store job ID in session state
 
                 # Display any warnings
                 if "warnings" in response_data and response_data["warnings"]:
@@ -297,34 +313,18 @@ if st.session_state.inspection_done and st.session_state.inspection_results and 
 
                         if status == "completed":
                             progress_bar.progress(100)
-                            status_text.success("Processing completed successfully!")
+                            status_text.empty()  # Clear the status text instead
 
-                            # Display metrics
+                            # Store completion status and output filename in session state
+                            st.session_state.job_completed = True
+                            st.session_state.output_filename = job_status.get("output_filename", f"processed_{pptx_file.name}")
+
+                            # Store metrics in session state
                             if "metrics" in job_status and job_status["metrics"]:
-                                metrics = job_status["metrics"]
+                                st.session_state.job_metrics = job_status["metrics"]
 
-                                st.subheader("Performance Metrics")
-                                col1, col2 = st.columns(2)
-
-                                with col1:
-                                    st.metric("Total Slides", metrics.get("total_slides", 0))
-                                    st.metric("Content Slides Processed", metrics.get("content_slides_processed", 0))
-                                    st.metric("Observations Generated", metrics.get("observations_generated", 0))
-                                    st.metric("Headlines Generated", metrics.get("headlines_generated", 0))
-
-                                with col2:
-                                    st.metric("Errors", metrics.get("errors", 0))
-                                    st.metric("Total Processing Time (s)", round(metrics.get("total_time_seconds", 0), 2))
-                                    st.metric("Avg. Time per Slide (s)", round(metrics.get("average_time_per_content_slide", 0), 2))
-
-                            # Download button
-                            st.download_button(
-                                "Download Processed Presentation",
-                                requests.get(f"{API_URL}/download/{job_id}").content,
-                                file_name=job_status.get("output_filename", f"processed_{pptx_file.name}"),
-                                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                            )
-
+                            # We'll now let the persistent section at the bottom display the metrics
+                            # This prevents duplicate display of metrics and download button
                             completed = True
 
                         elif status == "failed":
@@ -386,6 +386,36 @@ if st.session_state.inspection_done and st.session_state.inspection_results and 
                 st.error(f"Error connecting to API: {str(e)}")
             except Exception as e:
                 st.error(f"Error: {str(e)}")
+
+# Check if we have completed a job and need to display results
+if st.session_state.job_completed and st.session_state.job_id and st.session_state.job_metrics:
+    # Display a success message
+    st.success("Processing completed successfully!")
+
+    # Display metrics from session state
+    metrics = st.session_state.job_metrics
+    st.subheader("Performance Metrics")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.metric("Total Slides", metrics.get("total_slides", 0))
+        st.metric("Content Slides Processed", metrics.get("content_slides_processed", 0))
+        st.metric("Observations Generated", metrics.get("observations_generated", 0))
+        st.metric("Headlines Generated", metrics.get("headlines_generated", 0))
+
+    with col2:
+        st.metric("Errors", metrics.get("errors", 0))
+        st.metric("Total Processing Time (s)", round(metrics.get("total_time_seconds", 0), 2))
+        st.metric("Avg. Time per Slide (s)", round(metrics.get("average_time_per_content_slide", 0), 2))
+
+    # Download button
+    st.download_button(
+        "Download Processed Presentation",
+        requests.get(f"{API_URL}/download/{st.session_state.job_id}").content,
+        file_name=st.session_state.output_filename,
+        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        key="download_button_persistent"
+    )
 
 # Add sidebar with additional information
 with st.sidebar:
