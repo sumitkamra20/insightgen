@@ -12,13 +12,19 @@ import logging
 import json
 from datetime import datetime
 from pydantic import BaseModel
+import bcrypt
+from google.cloud import bigquery
 
 from insightgen.main import process_presentation
 from insightgen.process_slides import validate_files, extract_slide_metadata
-from insightgen.auth import authenticate_user, get_user_from_token, verify_token
+from insightgen.auth import authenticate_user, get_user_from_token, verify_token, generate_token
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Set up BigQuery client and table references
+bq = bigquery.Client()
+USERS_TABLE = os.getenv("USERS_TABLE", "insightgen_users.users")
 
 app = FastAPI(
     title="InsightGen API",
@@ -50,6 +56,15 @@ class TokenResponse(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+class RegistrationRequest(BaseModel):
+    username: str
+    password: str
+    full_name: str
+    email: str
+    company: str = ""
+    designation: str = ""
+    access_level: str = "standard"  # Default to standard user
 
 class UserResponse(BaseModel):
     user_id: str
@@ -615,3 +630,139 @@ async def get_generator(generator_id: str):
     except Exception as e:
         logging.error(f"Error getting generator {generator_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error getting generator: {str(e)}")
+
+@app.post("/api/auth/register", response_model=UserResponse)
+async def register_user(registration_data: RegistrationRequest):
+    """
+    Register a new user.
+    Performs validation and writes to the users table in BigQuery.
+    """
+    from insightgen.pipeline_utils import insert_user
+    import uuid
+    import re
+
+    # Basic validation
+    validation_errors = []
+
+    # Username validation (only alphanumeric and underscore, 3-20 chars)
+    if not re.match(r'^[a-zA-Z0-9_]{3,20}$', registration_data.username):
+        validation_errors.append("Username must be 3-20 characters and contain only letters, numbers, and underscores")
+
+    # Password validation (at least 8 chars, 1 uppercase, 1 lowercase, 1 digit)
+    if not re.match(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$', registration_data.password):
+        validation_errors.append("Password must be at least 8 characters and include uppercase, lowercase, and digits")
+
+    # Email validation
+    if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', registration_data.email):
+        validation_errors.append("Please enter a valid email address")
+
+    # Full name validation (not empty)
+    if not registration_data.full_name or len(registration_data.full_name.strip()) < 2:
+        validation_errors.append("Full name is required (minimum 2 characters)")
+
+    # Return validation errors if any
+    if validation_errors:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Validation failed", "errors": validation_errors}
+        )
+
+    # Check if username already exists
+    query = f"""
+    SELECT COUNT(*) as count
+    FROM `{USERS_TABLE}`
+    WHERE login_id = @login_id
+    """
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("login_id", "STRING", registration_data.username)
+        ]
+    )
+
+    query_job = bq.query(query, job_config=job_config)
+    results = list(query_job.result())
+
+    if results[0]['count'] > 0:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Registration failed", "errors": ["Username already exists"]}
+        )
+
+    # Check if email already exists
+    query = f"""
+    SELECT COUNT(*) as count
+    FROM `{USERS_TABLE}`
+    WHERE email = @email
+    """
+
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("email", "STRING", registration_data.email)
+        ]
+    )
+
+    query_job = bq.query(query, job_config=job_config)
+    results = list(query_job.result())
+
+    if results[0]['count'] > 0:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Registration failed", "errors": ["Email already exists"]}
+        )
+
+    try:
+        # Generate user ID
+        user_id = str(uuid.uuid4())
+
+        # Hash the password
+        password_bytes = registration_data.password.encode('utf-8')
+        salt = bcrypt.gensalt()
+        hashed_password = bcrypt.hashpw(password_bytes, salt).decode('utf-8')
+
+        # Prepare user data for insertion
+        user_data = {
+            "user_id": user_id,
+            "login_id": registration_data.username,
+            "hashed_password": hashed_password,
+            "full_name": registration_data.full_name,
+            "email": registration_data.email,
+            "company": registration_data.company,
+            "designation": registration_data.designation,
+            "access_granted": True,  # Default to granted for new registrations
+            "access_level": registration_data.access_level,
+            "extra_info": {"source": "self_registration"}
+        }
+
+        # Insert user into BigQuery
+        inserted_user = insert_user(user_data, table_id=USERS_TABLE)
+
+        # Generate token for immediate login
+        token = generate_token(
+            user_id=user_id,
+            login_id=registration_data.username,
+            access_level=registration_data.access_level,
+            full_name=registration_data.full_name,
+            email=registration_data.email
+        )
+
+        # Create the response
+        response_data = {
+            "user_id": user_id,
+            "login_id": registration_data.username,
+            "full_name": registration_data.full_name,
+            "email": registration_data.email,
+            "access_level": registration_data.access_level,
+            "registered_at": inserted_user["registered_at"],
+            "token": token
+        }
+
+        # Return the response
+        return UserResponse(**response_data)
+
+    except Exception as e:
+        logging.error(f"Error registering user: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "Registration failed due to a server error", "errors": [str(e)]}
+        )

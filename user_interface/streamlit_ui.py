@@ -52,6 +52,42 @@ def login(username, password):
     except Exception as e:
         return False, f"Error connecting to the server: {str(e)}"
 
+def register(username, password, full_name, email, company="", designation=""):
+    """Register a new user with the backend API"""
+    try:
+        # Prepare registration data
+        registration_data = {
+            "username": username,
+            "password": password,
+            "full_name": full_name,
+            "email": email,
+            "company": company,
+            "designation": designation
+        }
+
+        # Call the registration API
+        response = requests.post(
+            f"{API_URL}/api/auth/register",
+            json=registration_data
+        )
+
+        # Handle the response
+        if response.status_code == 200:
+            # Registration successful - but don't automatically log in
+            return True, "Registration successful"
+        else:
+            # Registration failed - parse error details
+            error_data = response.json()
+            error_msg = error_data.get("detail", {}).get("message", "Registration failed")
+            error_details = error_data.get("detail", {}).get("errors", [])
+
+            if error_details:
+                error_msg += ": " + " ".join(error_details)
+
+            return False, error_msg
+    except Exception as e:
+        return False, f"Error connecting to the server: {str(e)}"
+
 def verify_auth():
     """Verify if current authentication is valid"""
     # Skip if we know we're not authenticated
@@ -127,6 +163,18 @@ st.set_page_config(
 if "is_authenticated" not in st.session_state:
     st.session_state.is_authenticated = False
 
+# Add registration session state variables
+if "registration_successful" not in st.session_state:
+    st.session_state.registration_successful = False
+if "registered_username" not in st.session_state:
+    st.session_state.registered_username = ""
+if "registered_full_name" not in st.session_state:
+    st.session_state.registered_full_name = ""
+if "show_welcome_dialog" not in st.session_state:
+    st.session_state.show_welcome_dialog = False
+if "clear_registration_form" not in st.session_state:
+    st.session_state.clear_registration_form = False
+
 # Create a session state to track the inspection status
 if 'inspection_done' not in st.session_state:
     st.session_state.inspection_done = False
@@ -187,20 +235,118 @@ if not st.session_state.is_authenticated:
     st.markdown("## Login to continue")
     st.markdown("Please login with your InsightGen credentials.")
 
-    with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
+    # Create tabs for Login and Register
+    login_tab, register_tab = st.tabs(["Login", "Register"])
 
-        submit_button = st.form_submit_button("Login")
+    # Login tab
+    with login_tab:
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
 
-        if submit_button:
-            success, message = login(username, password)
-            if success:
-                st.success("Login successful!")
-                # Rerun app to update UI
+            submit_button = st.form_submit_button("Login")
+
+            if submit_button:
+                success, message = login(username, password)
+                if success:
+                    st.success("Login successful!")
+                    # Rerun app to update UI
+                    st.rerun()
+                else:
+                    st.error(message)
+
+    # Registration tab
+    with register_tab:
+        # Check if we should show welcome dialog
+        if st.session_state.show_welcome_dialog:
+            # Welcome dialog
+            st.success(f"Account created successfully!")
+            st.markdown(f"### Welcome {st.session_state.registered_full_name}!")
+            st.markdown("Your account has been created. Click OK to proceed to login.")
+
+            if st.button("OK"):
+                # Reset welcome dialog flag
+                st.session_state.show_welcome_dialog = False
+                # Reset clear form flag
+                st.session_state.clear_registration_form = False
+                # Switch to login tab and show message
+                st.session_state.registration_successful = True
                 st.rerun()
-            else:
-                st.error(message)
+        else:
+            with st.form("register_form"):
+                st.markdown("Create a new account")
+
+                # Initialize form fields (empty if clear_registration_form is True)
+                default_username = "" if st.session_state.clear_registration_form else st.session_state.get("form_username", "")
+                default_password = "" if st.session_state.clear_registration_form else st.session_state.get("form_password", "")
+                default_password_confirm = "" if st.session_state.clear_registration_form else st.session_state.get("form_password_confirm", "")
+                default_full_name = "" if st.session_state.clear_registration_form else st.session_state.get("form_full_name", "")
+                default_email = "" if st.session_state.clear_registration_form else st.session_state.get("form_email", "")
+                default_company = "" if st.session_state.clear_registration_form else st.session_state.get("form_company", "")
+                default_designation = "" if st.session_state.clear_registration_form else st.session_state.get("form_designation", "")
+
+                # Reset clear form flag
+                if st.session_state.clear_registration_form:
+                    st.session_state.clear_registration_form = False
+
+                reg_username = st.text_input("Username (3-20 characters, letters, numbers, underscore)", value=default_username, key="form_username")
+                reg_password = st.text_input("Password", type="password",
+                                             help="Min 8 chars, include uppercase, lowercase, and digits",
+                                             value=default_password, key="form_password")
+                reg_password_confirm = st.text_input("Confirm Password", type="password",
+                                                    value=default_password_confirm, key="form_password_confirm")
+                reg_full_name = st.text_input("Full Name", value=default_full_name, key="form_full_name")
+                reg_email = st.text_input("Email Address", value=default_email, key="form_email")
+
+                # Optional fields
+                with st.expander("Additional Information (Optional)"):
+                    reg_company = st.text_input("Company", value=default_company, key="form_company")
+                    reg_designation = st.text_input("Designation", value=default_designation, key="form_designation")
+
+                register_button = st.form_submit_button("Register")
+
+                if register_button:
+                    # Client-side validation
+                    validation_errors = []
+
+                    # Check if passwords match
+                    if reg_password != reg_password_confirm:
+                        validation_errors.append("Passwords do not match")
+
+                    # Display validation errors if any
+                    if validation_errors:
+                        for error in validation_errors:
+                            st.error(error)
+                    else:
+                        # Submit registration
+                        success, message = register(
+                            username=reg_username,
+                            password=reg_password,
+                            full_name=reg_full_name,
+                            email=reg_email,
+                            company=reg_company,
+                            designation=reg_designation
+                        )
+
+                        if success:
+                            # Store registration info for welcome dialog
+                            st.session_state.registered_username = reg_username
+                            st.session_state.registered_full_name = reg_full_name
+                            # Set flag to show welcome dialog
+                            st.session_state.show_welcome_dialog = True
+                            # Set flag to clear form on next render
+                            st.session_state.clear_registration_form = True
+                            # Rerun app to show welcome dialog
+                            st.rerun()
+                        else:
+                            st.error(message)
+
+    # Handle tab switching after registration
+    if st.session_state.get('registration_successful', False):
+        # Clear the flag so it only happens once
+        st.session_state.registration_successful = False
+        # Display a message in the login tab
+        st.info(f"Please login with your new account: {st.session_state.get('registered_username', '')}")
 
     # Stop here if not authenticated
     st.stop()
