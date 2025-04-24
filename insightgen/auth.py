@@ -23,7 +23,7 @@ JWT_EXPIRATION_HOURS = 168  # 7 days (effectively non-expiring for dev)
 # Initialize BigQuery client
 bq = bigquery.Client(project=PROJECT_ID)
 
-def generate_token(user_id: str, login_id: str, access_level: str) -> str:
+def generate_token(user_id: str, login_id: str, access_level: str, full_name: str = None, email: str = None) -> str:
     """
     Generate a JWT token for a user.
 
@@ -31,6 +31,8 @@ def generate_token(user_id: str, login_id: str, access_level: str) -> str:
         user_id: User ID from database
         login_id: User's login ID
         access_level: User's access level (admin, standard, etc.)
+        full_name: User's full name (optional)
+        email: User's email (optional)
 
     Returns:
         JWT token as string
@@ -43,6 +45,12 @@ def generate_token(user_id: str, login_id: str, access_level: str) -> str:
         "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=JWT_EXPIRATION_HOURS),  # expiration
         "jti": str(uuid.uuid4())  # JWT ID (unique)
     }
+
+    # Add optional user information to reduce database lookups
+    if full_name:
+        payload["full_name"] = full_name
+    if email:
+        payload["email"] = email
 
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
     return token
@@ -128,7 +136,9 @@ def authenticate_user(login_id: str, password: str) -> Tuple[bool, Optional[Dict
         token = generate_token(
             user_id=user["user_id"],
             login_id=user["login_id"],
-            access_level=user["access_level"]
+            access_level=user["access_level"],
+            full_name=user.get("full_name"),
+            email=user.get("email")
         )
 
         user["token"] = token
@@ -151,33 +161,16 @@ def get_user_from_token(token: str) -> Tuple[bool, Optional[Dict]]:
     if not is_valid:
         return False, payload  # Contains error
 
-    # Query to get fresh user data
-    query = f"""
-    SELECT user_id, login_id, full_name, email, access_level, access_granted
-    FROM `{USERS_TABLE}`
-    WHERE user_id = @user_id
-    """
-
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("user_id", "STRING", payload["sub"])
-        ]
-    )
-
-    # Execute query
-    query_job = bq.query(query, job_config=job_config)
-    results = list(query_job.result())
-
-    # Check if user exists and has access
-    if not results:
-        return False, {"error": "User not found"}
-
-    user = dict(results[0])
-
-    if not user.get("access_granted", False):
-        return False, {"error": "Access denied"}
-
-    # Add token-specific data
-    user["token_expires"] = datetime.datetime.fromtimestamp(payload["exp"]).isoformat()
+    # Get user information directly from the token instead of querying BigQuery
+    # This significantly improves performance for authenticated endpoints
+    user = {
+        "user_id": payload["sub"],
+        "login_id": payload["login_id"],
+        "full_name": payload.get("full_name", payload["login_id"]),  # Fallback to login_id if full_name not in token
+        "email": payload.get("email", ""),  # Optional field
+        "access_level": payload["access_level"],
+        "access_granted": True,  # We assume this is true since we verified the token
+        "token_expires": datetime.datetime.fromtimestamp(payload["exp"]).isoformat()
+    }
 
     return True, user
