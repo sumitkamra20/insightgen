@@ -24,8 +24,20 @@ print(f"DEBUG - Using project ID: {PROJECT_ID}")
 # Initialize BQ with explicit project
 bq = bigquery.Client(project=PROJECT_ID)
 
-def insert_user(user: dict):
-    """Add a new row to users."""
+def insert_user(user: dict, table_id=None):
+    """
+    Add a new row to the users table.
+
+    Args:
+        user: Dictionary containing user data
+        table_id: Optional table ID to override the default USERS_TEST_TABLE
+
+    Returns:
+        Dictionary containing the inserted user data including registration timestamp
+    """
+    # Use the specified table or default to USERS_TEST_TABLE
+    target_table = table_id or USERS_TEST_TABLE
+
     # Make a copy to avoid modifying the original
     user_data = user.copy()
 
@@ -37,7 +49,7 @@ def insert_user(user: dict):
         user_data["extra_info"] = json.dumps(user_data["extra_info"])
 
     # Insert the row
-    errors = bq.insert_rows_json(USERS_TEST_TABLE, [user_data])
+    errors = bq.insert_rows_json(target_table, [user_data])
 
     if errors:
         raise Exception(f"Error inserting user: {errors}")

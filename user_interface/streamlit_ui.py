@@ -19,10 +19,92 @@ API_URL = os.getenv('GCP_API_URL', "https://insightgen-api-195411721870.us-centr
 # Log the API URL being used (helpful for debugging)
 print(f"Using API URL: {API_URL}")
 
+# Authentication functions
+def login(username, password):
+    """Authenticate user with the backend API"""
+    try:
+        response = requests.post(
+            f"{API_URL}/api/auth/login",
+            json={"username": username, "password": password}
+        )
+
+        if response.status_code == 200:
+            # Store auth token and user info in session state
+            data = response.json()
+            st.session_state.auth_token = data.get("access_token")
+            st.session_state.user = data.get("user", {})
+            st.session_state.is_authenticated = True
+
+            # Also store auth token in cookie
+            headers = response.headers
+            if "set-cookie" in headers:
+                cookie = headers["set-cookie"].split(";")[0].split("=")[1]
+                st.session_state.auth_cookie = cookie
+
+            return True, "Login successful"
+        else:
+            error_msg = "Login failed"
+            if response.status_code == 401:
+                error_msg = "Invalid username or password"
+            elif response.status_code == 403:
+                error_msg = "Access denied"
+            return False, error_msg
+    except Exception as e:
+        return False, f"Error connecting to the server: {str(e)}"
+
+def verify_auth():
+    """Verify if current authentication is valid"""
+    # Skip if we know we're not authenticated
+    if not st.session_state.get("is_authenticated", False):
+        return False
+
+    # Get auth token from session state
+    token = st.session_state.get("auth_token")
+    if not token:
+        return False
+
+    try:
+        # Call verify endpoint
+        response = requests.get(
+            f"{API_URL}/api/auth/verify",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("authenticated", False):
+                # Update user info in session
+                if "user" in data:
+                    st.session_state.user = data["user"]
+                return True
+
+        # If we get here, authentication failed
+        logout()
+        return False
+    except Exception as e:
+        print(f"Auth verification error: {str(e)}")
+        return False
+
+def logout():
+    """Clear authentication data"""
+    if "auth_token" in st.session_state:
+        del st.session_state.auth_token
+    if "user" in st.session_state:
+        del st.session_state.user
+    if "is_authenticated" in st.session_state:
+        del st.session_state.is_authenticated
+    if "auth_cookie" in st.session_state:
+        del st.session_state.auth_cookie
+
 # Function to fetch available generators
 def fetch_generators():
     try:
-        response = requests.get(f"{API_URL}/generators/")
+        # Include auth token if available
+        headers = {}
+        if "auth_token" in st.session_state:
+            headers["Authorization"] = f"Bearer {st.session_state.auth_token}"
+
+        response = requests.get(f"{API_URL}/generators/", headers=headers)
         if response.status_code == 200:
             # Extract the generators list from the response
             response_data = response.json()
@@ -34,18 +116,16 @@ def fetch_generators():
         st.error(f"Error fetching generators: {str(e)}")
         return []
 
+# Page configuration
 st.set_page_config(
     page_title="InsightGen",
     page_icon="📊",
     layout="wide",
 )
 
-st.title("InsightGen: AI-Powered Insights")
-st.markdown("""
-Generate insightful headlines for your market research presentations.
-Currently supporting BGS studies only.
-Upload your PPTX and PDF files, provide some context, and let AI do the rest!
-""")
+# Initialize session state variables
+if "is_authenticated" not in st.session_state:
+    st.session_state.is_authenticated = False
 
 # Create a session state to track the inspection status
 if 'inspection_done' not in st.session_state:
@@ -67,6 +147,70 @@ if 'job_metrics' not in st.session_state:
     st.session_state.job_metrics = None
 if 'output_filename' not in st.session_state:
     st.session_state.output_filename = None
+
+# Header area with title and user info
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.title("InsightGen: AI-Powered Insights")
+with col2:
+    # Show user info or login button based on authentication
+    if st.session_state.is_authenticated:
+        user_info = st.session_state.user
+        st.markdown(f"**Logged in as:** {user_info.get('full_name', 'User')}")
+
+        # Add logout button
+        if st.button("Logout"):
+            # Call logout endpoint
+            try:
+                response = requests.post(f"{API_URL}/api/auth/logout")
+                logout()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error during logout: {str(e)}")
+                logout()  # Still clear local state
+                st.rerun()
+    else:
+        st.text("Not logged in")
+
+# Verify authentication on page load
+if st.session_state.is_authenticated:
+    # Verify token is still valid
+    is_valid = verify_auth()
+    if not is_valid:
+        st.warning("Your session has expired. Please login again.")
+        # Force rerun to show login form
+        st.session_state.is_authenticated = False
+        st.rerun()
+
+# Login form if not authenticated
+if not st.session_state.is_authenticated:
+    st.markdown("## Login to continue")
+    st.markdown("Please login with your InsightGen credentials.")
+
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+
+        submit_button = st.form_submit_button("Login")
+
+        if submit_button:
+            success, message = login(username, password)
+            if success:
+                st.success("Login successful!")
+                # Rerun app to update UI
+                st.rerun()
+            else:
+                st.error(message)
+
+    # Stop here if not authenticated
+    st.stop()
+
+# Main app content - only shown if authenticated
+st.markdown("""
+Generate insightful headlines for your market research presentations.
+Currently supporting BGS studies only.
+Upload your PPTX and PDF files, provide some context, and let AI do the rest!
+""")
 
 # File upload section
 with st.form("upload_form", clear_on_submit=False):
@@ -109,14 +253,26 @@ if inspect_button and pptx_file and pdf_file:
             "pdf_file": (pdf_file.name, pdf_file.getvalue(), "application/pdf"),
         }
 
+        # Include auth token in headers
+        headers = {}
+        if "auth_token" in st.session_state:
+            headers["Authorization"] = f"Bearer {st.session_state.auth_token}"
+
         try:
             # Call the inspect-files endpoint
-            response = requests.post(f"{API_URL}/inspect-files/", files=files)
+            response = requests.post(f"{API_URL}/inspect-files/", files=files, headers=headers)
 
             # Check for HTTP errors
             if response.status_code >= 400:
                 error_detail = response.json().get("detail", "Unknown error")
                 st.error(f"❌ Error during inspection: {error_detail}")
+
+                # Handle authentication errors specifically
+                if response.status_code == 401:
+                    logout()
+                    st.error("Your session has expired. Please login again.")
+                    st.rerun()
+
                 st.stop()
 
             # Process successful response
@@ -246,7 +402,12 @@ if st.session_state.inspection_done and st.session_state.inspection_results and 
 
             # Submit job
             try:
-                response = requests.post(f"{API_URL}/upload-and-process/", files=files, data=data)
+                # Include auth token in headers
+                headers = {}
+                if "auth_token" in st.session_state:
+                    headers["Authorization"] = f"Bearer {st.session_state.auth_token}"
+
+                response = requests.post(f"{API_URL}/upload-and-process/", files=files, data=data, headers=headers)
 
                 # Check for HTTP errors (4xx, 5xx)
                 if response.status_code >= 400:
@@ -298,7 +459,12 @@ if st.session_state.inspection_done and st.session_state.inspection_results and 
                 processing_stage = 1
 
                 while not completed and time.time() - start_time < 3600:  # 1 hour timeout
-                    status_response = requests.get(f"{API_URL}/job-status/{job_id}")
+                    # Include auth token in headers for status check
+                    headers = {}
+                    if "auth_token" in st.session_state:
+                        headers["Authorization"] = f"Bearer {st.session_state.auth_token}"
+
+                    status_response = requests.get(f"{API_URL}/job-status/{job_id}", headers=headers)
 
                     if status_response.status_code == 200:
                         job_status = status_response.json()
@@ -408,10 +574,14 @@ if st.session_state.job_completed and st.session_state.job_id and st.session_sta
         st.metric("Total Processing Time (s)", round(metrics.get("total_time_seconds", 0), 2))
         st.metric("Avg. Time per Slide (s)", round(metrics.get("average_time_per_content_slide", 0), 2))
 
-    # Download button
+    # Download button with auth header
+    headers = {}
+    if "auth_token" in st.session_state:
+        headers["Authorization"] = f"Bearer {st.session_state.auth_token}"
+
     st.download_button(
         "Download Processed Presentation",
-        requests.get(f"{API_URL}/download/{st.session_state.job_id}").content,
+        requests.get(f"{API_URL}/download/{st.session_state.job_id}", headers=headers).content,
         file_name=st.session_state.output_filename,
         mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         key="download_button_persistent"

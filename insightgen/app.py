@@ -1,18 +1,21 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse, Response
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Cookie, Header
+from fastapi.responses import FileResponse, Response, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import os
 import shutil
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Any
 import logging
 import json
 from datetime import datetime
+from pydantic import BaseModel
 
 from insightgen.main import process_presentation
 from insightgen.process_slides import validate_files, extract_slide_metadata
+from insightgen.auth import authenticate_user, get_user_from_token, verify_token
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -35,6 +38,161 @@ app.add_middleware(
 # Store job status
 jobs = {}
 
+# OAuth2 password bearer token scheme
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+
+# Auth-related models
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: Dict[str, Any]
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class UserResponse(BaseModel):
+    user_id: str
+    login_id: str
+    full_name: str
+    email: str
+    access_level: str
+    token_expires: Optional[str] = None
+
+# Helper function to get current user
+async def get_current_user(
+    token: Optional[str] = Depends(oauth2_scheme),
+    cookie_token: Optional[str] = Cookie(None, alias="auth_token"),
+    authorization: Optional[str] = Header(None)
+) -> Optional[Dict[str, Any]]:
+    """
+    Get the current authenticated user from token.
+    Tries to get token from:
+    1. OAuth2 bearer token
+    2. Cookie
+    3. Authorization header
+    """
+    # Try different token sources
+    final_token = token
+
+    if not final_token and cookie_token:
+        final_token = cookie_token
+
+    if not final_token and authorization:
+        scheme, _, param = authorization.partition(" ")
+        if scheme.lower() == "bearer":
+            final_token = param
+
+    if not final_token:
+        return None
+
+    # Verify token and get user
+    is_valid, user_data = get_user_from_token(final_token)
+
+    if not is_valid:
+        return None
+
+    return user_data
+
+# ---- Auth Routes ----
+
+@app.post("/api/login", response_model=TokenResponse)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """
+    Authenticate a user and return a JWT token.
+    """
+    is_authenticated, user_data = authenticate_user(form_data.username, form_data.password)
+
+    if not is_authenticated:
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return {
+        "access_token": user_data["token"],
+        "token_type": "bearer",
+        "user": user_data
+    }
+
+@app.post("/api/auth/login", response_model=TokenResponse)
+async def login_json(login_data: LoginRequest):
+    """
+    Authenticate a user with JSON payload and return a JWT token.
+    """
+    is_authenticated, user_data = authenticate_user(login_data.username, login_data.password)
+
+    if not is_authenticated:
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Create response with cookie
+    response = JSONResponse(content={
+        "access_token": user_data["token"],
+        "token_type": "bearer",
+        "user": user_data
+    })
+
+    # Set cookie
+    response.set_cookie(
+        key="auth_token",
+        value=user_data["token"],
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        max_age=7 * 24 * 3600  # 7 days
+    )
+
+    return response
+
+@app.get("/api/auth/me", response_model=UserResponse)
+async def get_my_info(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """
+    Get information about the current authenticated user.
+    """
+    if not current_user:
+        raise HTTPException(
+            status_code=401,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return current_user
+
+@app.post("/api/auth/logout")
+async def logout():
+    """
+    Logout the current user by clearing the auth cookie.
+    """
+    response = JSONResponse(content={"message": "Logged out successfully"})
+
+    # Clear the auth cookie
+    response.delete_cookie(key="auth_token")
+
+    return response
+
+@app.get("/api/auth/verify")
+async def verify_auth(current_user: Optional[Dict[str, Any]] = Depends(get_current_user)):
+    """
+    Verify if the current authentication is valid.
+    """
+    if not current_user:
+        return JSONResponse(content={"authenticated": False})
+
+    return JSONResponse(content={
+        "authenticated": True,
+        "user": {
+            "user_id": current_user["user_id"],
+            "login_id": current_user["login_id"],
+            "full_name": current_user["full_name"],
+            "access_level": current_user["access_level"]
+        }
+    })
+
 @app.get("/")
 async def root():
     return {"message": "Welcome to InsightGen API", "version": "0.1.0"}
@@ -53,20 +211,16 @@ async def upload_and_process(
     context_window_size: Optional[int] = Form(None),
     few_shot_examples: Optional[str] = Form(None),
     batch_size: Optional[int] = Form(10),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     """
     Upload PPTX and PDF files and process them to generate insights and headlines.
-
-    Args:
-        background_tasks: FastAPI BackgroundTasks
-        pptx_file: The PPTX file to process
-        pdf_file: The PDF file to process
-        user_prompt: User prompt with market and brand information
-        generator_id: ID of the generator to use (optional)
-        context_window_size: Number of previous headlines to maintain in context (optional)
-        few_shot_examples: Optional examples of observation-headline pairs for few-shot learning
-        batch_size: Number of slides to process in one batch (default: 10)
+    Requires authentication.
     """
+    # Check authentication
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
     # Create unique job ID
     job_id = str(uuid.uuid4())
 
@@ -107,7 +261,9 @@ async def upload_and_process(
             "metrics": None,
             "created_at": datetime.now().isoformat(),
             "pptx_filename": pptx_file.filename,
-            "pdf_filename": pdf_file.filename
+            "pdf_filename": pdf_file.filename,
+            "user_id": current_user["user_id"],  # Associate job with user
+            "created_by": current_user["full_name"]
         }
 
         # Process in background
@@ -212,14 +368,23 @@ def process_job(
         }
 
 @app.get("/job-status/{job_id}")
-async def get_job_status(job_id: str):
+async def get_job_status(
+    job_id: str,
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
+):
     """
     Get the status of a job.
+    If user is authenticated, checks that the job belongs to the user.
     """
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
 
     job = jobs[job_id].copy()
+
+    # If user is authenticated, check job ownership
+    if current_user and "user_id" in job:
+        if job["user_id"] != current_user["user_id"] and current_user["access_level"] != "admin":
+            raise HTTPException(status_code=403, detail="You don't have permission to access this job")
 
     # Remove binary content from response
     if "output_content" in job:
@@ -228,14 +393,23 @@ async def get_job_status(job_id: str):
     return job
 
 @app.get("/download/{job_id}")
-async def download_result(job_id: str):
+async def download_result(
+    job_id: str,
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
+):
     """
     Download the processed PPTX file.
+    If user is authenticated, checks that the job belongs to the user.
     """
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
 
     job = jobs[job_id]
+
+    # If user is authenticated, check job ownership
+    if current_user and "user_id" in job:
+        if job["user_id"] != current_user["user_id"] and current_user["access_level"] != "admin":
+            raise HTTPException(status_code=403, detail="You don't have permission to access this job")
 
     if job["status"] != "completed":
         raise HTTPException(status_code=400, detail="Job not completed yet")
@@ -250,44 +424,74 @@ async def download_result(job_id: str):
     )
 
 @app.delete("/job/{job_id}")
-async def delete_job(job_id: str):
+async def delete_job(
+    job_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
     """
-    Delete a job and its associated files.
+    Delete a job.
+    Requires authentication and job ownership.
     """
+    # Check authentication
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Remove job from jobs dictionary
-    del jobs[job_id]
+    job = jobs[job_id]
 
-    return {"message": "Job deleted successfully"}
+    # Check job ownership
+    if "user_id" in job and job["user_id"] != current_user["user_id"] and current_user["access_level"] != "admin":
+        raise HTTPException(status_code=403, detail="You don't have permission to delete this job")
+
+    del jobs[job_id]
+    return {"message": "Job deleted"}
 
 @app.get("/jobs")
-async def list_jobs():
+async def list_jobs(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
     """
-    List all jobs with their status.
+    List all jobs.
+    If user is authenticated, only returns jobs belonging to the user or all jobs for admin.
     """
-    job_list = []
-    for job_id, job_data in jobs.items():
-        job_info = {
-            "job_id": job_id,
-            "status": job_data["status"],
-            "message": job_data["message"],
-            "created_at": job_data.get("created_at"),
-            "completed_at": job_data.get("completed_at")
-        }
-        job_list.append(job_info)
+    # Check authentication
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
 
-    return {"jobs": job_list}
+    result = []
+
+    for job_id, job in jobs.items():
+        # Filter by user_id if not admin
+        if current_user["access_level"] != "admin" and job.get("user_id") != current_user["user_id"]:
+            continue
+
+        job_copy = job.copy()
+
+        # Remove binary content
+        if "output_content" in job_copy:
+            del job_copy["output_content"]
+
+        job_copy["job_id"] = job_id
+        result.append(job_copy)
+
+    return result
 
 @app.post("/inspect-files/")
 async def inspect_files(
     pptx_file: UploadFile = File(...),
     pdf_file: UploadFile = File(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
 ):
     """
     Inspect PPTX and PDF files before processing to provide detailed information about the files.
+    Requires authentication.
     """
+    # Check authentication
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
     try:
         # Read file contents
         try:
