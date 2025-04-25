@@ -55,3 +55,52 @@ def insert_user(user: dict, table_id=None):
         raise Exception(f"Error inserting user: {errors}")
 
     return user_data
+
+def log_user_activity(job_data):
+    """
+    Log completed user activity to BigQuery.
+
+    Args:
+        job_data: Dictionary containing all job data to be logged
+
+    Returns:
+        Boolean indicating success or failure
+    """
+    try:
+        # Ensure the job_data has all required fields set (even if empty)
+        required_fields = [
+            "user_id", "job_id", "service", "status", "error_message",
+            "ts", "pptx_filename", "pdf_filename", "pptx_file_path",
+            "pdf_file_path", "output_path", "output_type", "download_url",
+            "batch_size", "duration_seconds", "slide_metadata"
+        ]
+
+        # Set defaults for missing fields
+        for field in required_fields:
+            if field not in job_data:
+                if field in ["batch_size", "duration_seconds"]:
+                    job_data[field] = None  # Numeric fields can be null
+                elif field == "ts":
+                    job_data[field] = datetime.now(timezone.utc).isoformat()
+                elif field == "slide_metadata":
+                    job_data[field] = json.dumps({})
+                else:
+                    job_data[field] = ""  # String fields default to empty string
+
+        # Convert slide_metadata to JSON string if it's not already
+        if isinstance(job_data["slide_metadata"], (dict, list)):
+            job_data["slide_metadata"] = json.dumps(job_data["slide_metadata"])
+
+        # Insert the row into the activity log table
+        errors = bq.insert_rows_json(ACTIVITY_TABLE, [job_data])
+
+        if errors:
+            print(f"Error logging user activity: {errors}")
+            return False
+
+        print(f"Successfully logged activity for job {job_data['job_id']}")
+        return True
+
+    except Exception as e:
+        print(f"Exception in log_user_activity: {str(e)}")
+        return False

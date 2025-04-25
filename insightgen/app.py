@@ -335,6 +335,11 @@ def process_job(
         few_shot_examples: Optional examples of observation-headline pairs for few-shot learning
         batch_size: Number of slides to process in one batch (default: 10)
     """
+    import time
+    start_time = time.time()
+    pdf_filename = jobs[job_id].get("pdf_filename", "")
+    user_id = jobs[job_id].get("user_id", "")
+
     try:
         # Get existing warnings if any
         warnings = jobs[job_id].get("warnings", [])
@@ -354,6 +359,9 @@ def process_job(
         # Extract filename and content from result
         output_filename, output_content = result
 
+        # Calculate processing duration
+        duration_seconds = time.time() - start_time
+
         # Update job status
         jobs[job_id] = {
             "status": "completed",
@@ -362,12 +370,55 @@ def process_job(
             "output_filename": output_filename,
             "output_content": output_content,  # Store binary content
             "metrics": metrics,
-            "completed_at": datetime.now().isoformat()
+            "completed_at": datetime.now().isoformat(),
+            "user_id": user_id  # Ensure user_id is preserved
         }
 
         logging.info(f"Job {job_id} completed successfully")
 
+        # Prepare and log activity data
+        from insightgen.pipeline_utils import log_user_activity
+
+        # Extract number of slides processed from metrics
+        batch_size_processed = metrics.get("content_slides_processed", batch_size)
+
+        # Log successful job completion
+        activity_data = {
+            "user_id": user_id,
+            "job_id": job_id,
+            "service": "HeadlineAI",
+            "status": "success",
+            "error_message": "",
+            "ts": datetime.now().isoformat(),
+            "pptx_filename": pptx_filename,
+            "pdf_filename": pdf_filename,
+            "pptx_file_path": "",  # To be implemented in next build
+            "pdf_file_path": "",   # To be implemented in next build
+            "output_path": "",     # To be implemented in next build
+            "output_type": "pptx",
+            "download_url": "",    # Keeping blank until storage bucket is implemented
+            "batch_size": batch_size_processed,
+            "duration_seconds": duration_seconds,
+            "slide_metadata": {
+                "user_prompt": user_prompt,
+                "generator_id": generator_id if generator_id else "default",
+                "context_window_size": context_window_size,
+                "few_shot_examples": "custom" if few_shot_examples else "default",
+                "headline_count": metrics.get("headlines_generated", 0),
+                "observation_count": metrics.get("observations_generated", 0),
+                "total_slides": metrics.get("total_slides", 0)
+            }
+        }
+
+        # Log to BigQuery
+        log_result = log_user_activity(activity_data)
+        if not log_result:
+            logging.warning(f"Failed to log activity for job {job_id}")
+
     except Exception as e:
+        # Calculate duration even for failed jobs
+        duration_seconds = time.time() - start_time
+
         logging.error(f"Error processing job {job_id}: {str(e)}")
         # Get existing warnings if any
         warnings = jobs[job_id].get("warnings", [])
@@ -379,8 +430,40 @@ def process_job(
             "output_filename": None,
             "output_content": None,
             "metrics": None,
-            "completed_at": datetime.now().isoformat()
+            "completed_at": datetime.now().isoformat(),
+            "user_id": user_id  # Ensure user_id is preserved
         }
+
+        # Log failed job
+        from insightgen.pipeline_utils import log_user_activity
+
+        # Log error completion
+        error_data = {
+            "user_id": user_id,
+            "job_id": job_id,
+            "service": "HeadlineAI",
+            "status": "error",
+            "error_message": str(e),
+            "ts": datetime.now().isoformat(),
+            "pptx_filename": pptx_filename,
+            "pdf_filename": pdf_filename,
+            "pptx_file_path": "",
+            "pdf_file_path": "",
+            "output_path": "",
+            "output_type": "",
+            "download_url": "",
+            "batch_size": batch_size,
+            "duration_seconds": duration_seconds,
+            "slide_metadata": {
+                "user_prompt": user_prompt,
+                "generator_id": generator_id if generator_id else "default"
+            }
+        }
+
+        # Log to BigQuery
+        log_result = log_user_activity(error_data)
+        if not log_result:
+            logging.warning(f"Failed to log error activity for job {job_id}")
 
 @app.get("/job-status/{job_id}")
 async def get_job_status(
@@ -431,6 +514,9 @@ async def download_result(
 
     if not job.get("output_content"):
         raise HTTPException(status_code=404, detail="Output file not found")
+
+    # Note: We're removing the download activity logging to ensure only one record per job
+    # is created in the activity_log table (at job completion)
 
     return Response(
         content=job["output_content"],
