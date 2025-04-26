@@ -14,7 +14,7 @@ load_dotenv()
 # In production: use the Cloud Run URL
 # Set DEPLOYMENT_ENV=production in your Streamlit Cloud environment variables
 is_production = os.getenv("DEPLOYMENT_ENV") == "production"
-API_URL = os.getenv('GCP_API_URL', "https://insightgen-api-195411721870.us-central1.run.app") if is_production else "http://localhost:8080"
+API_URL = os.getenv('GCP_API_URL', "https://insightgen-api-195411721870.us-central1.run.app") if is_production else "http://localhost:8082"
 
 # Log the API URL being used (helpful for debugging)
 print(f"Using API URL: {API_URL}")
