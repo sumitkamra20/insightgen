@@ -1,0 +1,76 @@
+version: '3'
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+
+  webserver:
+    image: apache/airflow:2.7.1
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__FERNET_KEY=Yjfdsu7vfdsmMQwNXdxUkc8iQJGthBuXtLwOkxGGyqk=
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth
+      - AIRFLOW__WEBSERVER__AUTHENTICATE=True
+      - AIRFLOW__WEBSERVER__AUTH_BACKEND=airflow.api.auth.backend.basic_auth
+      - _AIRFLOW_WWW_USER_USERNAME=airflow
+      - _AIRFLOW_WWW_USER_PASSWORD=airflow
+      - GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/gcp/service-account.json
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./requirements.txt:/opt/airflow/requirements.txt
+      - /Users/sumitkamra/code/sumitkamra20/keys/insightgen-453212-500436e1010d.json:/opt/airflow/gcp/service-account.json
+    ports:
+      - "8081:8080"
+    command: >
+      bash -c "pip install -r /opt/airflow/requirements.txt && airflow webserver"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  scheduler:
+    image: apache/airflow:2.7.1
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__FERNET_KEY=Yjfdsu7vfdsmMQwNXdxUkc8iQJGthBuXtLwOkxGGyqk=
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__PARALLELISM=4
+      - AIRFLOW__CORE__DAG_CONCURRENCY=2
+      - AIRFLOW__SCHEDULER__MAX_THREADS=2
+      - AIRFLOW__SCHEDULER__PARSING_PROCESSES=2
+      - AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL=60
+      - AIRFLOW__CORE__MIN_SERIALIZED_DAG_UPDATE_INTERVAL=30
+      - AIRFLOW__CORE__DAGBAG_IMPORT_TIMEOUT=60
+      - GOOGLE_APPLICATION_CREDENTIALS=/opt/airflow/gcp/service-account.json
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./requirements.txt:/opt/airflow/requirements.txt
+      - /Users/sumitkamra/code/sumitkamra20/keys/insightgen-453212-500436e1010d.json:/opt/airflow/gcp/service-account.json
+    command: >
+      bash -c "pip install -r /opt/airflow/requirements.txt && airflow scheduler"
+
+volumes:
+  postgres-db-volume:
