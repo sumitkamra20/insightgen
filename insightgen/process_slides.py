@@ -17,6 +17,9 @@ import base64
 from pptx.enum.shapes import PP_PLACEHOLDER
 from typing import List, Dict, Union, Optional, BinaryIO, Tuple
 from PyPDF2 import PdfReader
+import re
+import uuid
+from datetime import datetime
 
 
 def validate_files(
@@ -73,72 +76,84 @@ def validate_files(
 
 
 def extract_slide_metadata(
-    input_folder: str = None,
-    pptx_file_content: bytes = None,
-    pptx_filename: str = None
-) -> dict:
+    input_folder=None,
+    pptx_file_content=None,
+    pptx_filename=None,
+):
     """
-    Extracts metadata from each slide in a PPTX file.
+    Extract metadata from PPTX slides.
 
     Args:
-        input_folder (str, optional): Path to the folder containing the PPTX file.
-        pptx_file_content (bytes, optional): PPTX file content as bytes.
-        pptx_filename (str, optional): Name of the PPTX file when provided as bytes.
+        input_folder: Path to folder containing PPTX file
+        pptx_file_content: PPTX file content as bytes
+        pptx_filename: Name of the PPTX file when provided as bytes
 
     Returns:
-        dict: Dictionary storing slide metadata including layout, content status, placeholder availability,
-              and placeholders for observations.
+        Dictionary containing slide metadata with additional run_info
     """
-    presentation = None
-
-    # Handle file from disk
+    # Get PPTX presentation
     if input_folder:
-        # Find the PPTX file in the input folder
         pptx_files = [f for f in os.listdir(input_folder) if f.endswith('.pptx')]
-
         if not pptx_files:
-            raise FileNotFoundError("No PPTX file found in the input folder.")
-        if len(pptx_files) > 1:
-            raise ValueError("Multiple PPTX files found. Please keep only one.")
+            raise FileNotFoundError("No PPTX file found in input directory")
 
         pptx_path = os.path.join(input_folder, pptx_files[0])
-        presentation = Presentation(pptx_path)
-
-    # Handle file from memory
+        prs = Presentation(pptx_path)
     elif pptx_file_content:
-        pptx_stream = BytesIO(pptx_file_content)
-        presentation = Presentation(pptx_stream)
-
+        prs = Presentation(BytesIO(pptx_file_content))
     else:
-        raise ValueError("Either input_folder or pptx_file_content must be provided.")
+        raise ValueError("Either input_folder or pptx_file_content must be provided")
 
-    slide_data = {}
+    # Extract metadata for each slide
+    slide_metadata = {}
 
-    # Iterate through slides and extract metadata
-    for slide_number, slide in enumerate(presentation.slides, start=1):
-        layout_name = slide.slide_layout.name  # Extract layout name
+    for i, slide in enumerate(prs.slides, start=1):
+        slide_number = str(i)
 
-        # Mark slide as non-content if its layout name starts with "HEADER" (case-insensitive)
-        content_slide = not layout_name.upper().startswith("HEADER")
+        # Get slide layout name
+        layout_name = slide.slide_layout.name
 
-        # Check if a title placeholder exists
-        has_placeholder = any(
-            shape.is_placeholder and shape.placeholder_format.type == PP_PLACEHOLDER.TITLE
-            for shape in slide.shapes
-        )
+        # Check if this is a header slide
+        content_slide = True
+        if layout_name.upper().startswith('HEADER') or 'DIVIDER' in layout_name.upper():
+            content_slide = False
+
+        # Check if slide has title placeholder
+        has_placeholder = False
+        for shape in slide.shapes:
+            if shape.is_placeholder and shape.placeholder_format.type == 1:  # 1 is title
+                has_placeholder = True
+                break
 
         # Initialize empty fields for later functions to fill
-        slide_data[slide_number] = {
+        slide_data = {
             "layout": layout_name,
             "content_slide": content_slide,
             "has_placeholder": has_placeholder,
             "key_observations": "",
             "slide_headline": "",
-            "speaker_notes": "",
-            "filename": pptx_filename if pptx_filename else (pptx_files[0] if input_folder else "presentation.pptx")
+            "speaker_notes": ""
         }
 
-    return slide_data
+        # Extract any speaker notes
+        if slide.has_notes_slide and slide.notes_slide.notes_text_frame.text:
+            slide_data["speaker_notes"] = slide.notes_slide.notes_text_frame.text.strip()
+
+        slide_metadata[slide_number] = slide_data
+
+    # Determine filename for the presentation
+    presentation_filename = pptx_filename if pptx_filename else (pptx_files[0] if input_folder else "presentation.pptx")
+
+    # Add run-level metadata
+    slide_metadata["run_info"] = {
+        "task_description": "",           # Task description
+        "summaries": [],                  # Will contain structured summaries
+        "created_at": datetime.now().isoformat(),
+        "generator_id": "",               # Will be filled by the caller
+        "filename": presentation_filename  # Presentation filename
+    }
+
+    return slide_metadata
 
 def generate_slide_images_base64(
     input_folder: str = None,
@@ -271,8 +286,8 @@ def insert_headlines_into_pptx(
     elif pptx_file_content:
         pptx_stream = BytesIO(pptx_file_content)
         presentation = Presentation(pptx_stream)
-        # Get filename from slide_data
-        original_filename = next(iter(slide_data.values()))["filename"]
+        # Get filename from run_info instead of slide_data
+        original_filename = slide_data.get("run_info", {}).get("filename", "presentation.pptx")
 
     else:
         raise ValueError("Either input_folder and output_folder or pptx_file_content must be provided.")

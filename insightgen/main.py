@@ -1,9 +1,10 @@
 import os
 import logging
 from pathlib import Path
+from datetime import datetime
 from insightgen.process_slides import extract_slide_metadata, insert_headlines_into_pptx
-from insightgen.openai_client import generate_observations_and_headlines
-from typing import Tuple, Dict, Union, Optional, BinaryIO
+from insightgen.services import headline_service
+from typing import Tuple, Dict, Union, Optional, BinaryIO, Any
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -18,12 +19,15 @@ def process_presentation(
     pptx_file_content: Optional[bytes] = None,
     pdf_file_content: Optional[bytes] = None,
     pptx_filename: Optional[str] = None,
-    batch_size: int = 10  # New parameter
+    batch_size: int = 10,  # For batch processing
+    operation_type: str = "generate_headlines",  # New parameter for operation type
+    task_description: str = "",  # New parameter for task description
+    refine_parameters: Optional[Dict] = None  # New parameter for refine options
 ) -> Tuple[Union[str, Tuple[str, bytes]], Dict]:
     """
     Main function to process the presentation:
     1. Extract slide metadata
-    2. Generate observations and headlines using OpenAI (with batch image processing)
+    2. Generate observations and headlines using the service layer
     3. Insert headlines and observations into the PPTX
 
     Args:
@@ -32,13 +36,14 @@ def process_presentation(
         user_prompt (str): User prompt containing market and brand information
         generator_id (str, optional): ID of the generator to use. If None, uses the default generator.
         context_window_size (int, optional): Number of previous headlines to maintain in context.
-            If None, uses the value from the generator's workflow.
         few_shot_examples (str, optional): Examples of observation-headline pairs for few-shot learning.
-            If None, uses the examples from the generator.
         pptx_file_content (bytes, optional): PPTX file content as bytes
         pdf_file_content (bytes, optional): PDF file content as bytes
         pptx_filename (str, optional): Name of the PPTX file when provided as bytes
         batch_size (int, optional): Number of slides to convert to images at once. Defaults to 10.
+        operation_type (str, optional): Type of operation to perform. Defaults to "generate_headlines".
+        task_description (str, optional): Description of the task being performed.
+        refine_parameters (Dict, optional): Parameters for refining headlines (when operation_type is "refine_headlines").
 
     Returns:
         Tuple[Union[str, Tuple[str, bytes]], Dict]: A tuple containing:
@@ -60,6 +65,23 @@ def process_presentation(
             pptx_filename=pptx_filename if using_memory_files else None
         )
 
+        # Set run-level information
+        slide_metadata["run_info"]["task_description"] = task_description
+        slide_metadata["run_info"]["generator_id"] = generator_id if generator_id else "default"
+
+        # Store operation details directly in run_info (simplified structure)
+        if operation_type == "generate_headlines":
+            slide_metadata["run_info"]["operation_type"] = operation_type
+            slide_metadata["run_info"]["context_window_size"] = context_window_size
+            slide_metadata["run_info"]["batch_size"] = batch_size
+            slide_metadata["run_info"]["has_few_shot_examples"] = few_shot_examples is not None
+        elif operation_type == "refine_headlines":
+            slide_metadata["run_info"]["operation_type"] = operation_type
+            if refine_parameters:
+                # Add individual refine parameters directly to run_info
+                for key, value in refine_parameters.items():
+                    slide_metadata["run_info"][f"refine_{key}"] = value
+
         # If using files on disk, read the PDF content for batch processing
         pdf_content_for_processing = pdf_file_content
         if using_files_on_disk and not pdf_content_for_processing:
@@ -70,17 +92,36 @@ def process_presentation(
                     pdf_content_for_processing = f.read()
                 logging.info(f"Read PDF file from disk: {pdf_path}")
 
-        # Step 2: Generate observations and headlines (with batch image processing)
-        logging.info("Generating observations and headlines with batch image processing")
-        slide_metadata, metrics = generate_observations_and_headlines(
-            slide_metadata,
-            user_prompt,
-            pdf_file_content=pdf_content_for_processing,
-            generator_id=generator_id,
-            context_window_size=context_window_size,
-            few_shot_examples=few_shot_examples,
-            batch_size=batch_size
-        )
+        # Step 2: Process based on operation type
+        if operation_type == "generate_headlines":
+            # Call the headline service to generate observations and headlines
+            logging.info("Generating observations and headlines")
+            slide_metadata, metrics = headline_service.generate_headlines(
+                slide_metadata,
+                user_prompt,
+                pdf_file_content=pdf_content_for_processing,
+                generator_id=generator_id,
+                context_window_size=context_window_size,
+                few_shot_examples=few_shot_examples,
+                batch_size=batch_size
+            )
+        elif operation_type == "refine_headlines":
+            # This will be implemented later
+            logging.info("Refining headlines operation not yet implemented")
+            metrics = {
+                "total_slides": len([k for k in slide_metadata.keys() if k != "run_info"]),
+                "content_slides_processed": 0,
+                "headlines_refined": 0,
+                "generator_id": generator_id if generator_id else "default",
+                "start_time": datetime.now().isoformat(),
+                "end_time": datetime.now().isoformat(),
+                "total_time_seconds": 0,
+                "average_time_per_content_slide": 0,
+                "errors": 0,
+                "operation_type": operation_type
+            }
+        else:
+            raise ValueError(f"Unknown operation type: {operation_type}")
 
         # Step 3: Insert headlines and observations into PPTX
         result = insert_headlines_into_pptx(
@@ -115,8 +156,13 @@ def display_metrics(metrics: Dict):
     print(f"Processing Summary:")
     print(f"  • Total Slides: {metrics['total_slides']}")
     print(f"  • Content Slides Processed: {metrics['content_slides_processed']}")
-    print(f"  • Observations Generated: {metrics['observations_generated']}")
-    print(f"  • Headlines Generated: {metrics['headlines_generated']}")
+
+    if "operation_type" in metrics and metrics["operation_type"] == "refine_headlines":
+        print(f"  • Headlines Refined: {metrics['headlines_refined']}")
+    else:
+        print(f"  • Observations Generated: {metrics.get('observations_generated', 0)}")
+        print(f"  • Headlines Generated: {metrics.get('headlines_generated', 0)}")
+
     print(f"\nError Summary:")
     print(f"  • Errors Encountered: {metrics['errors']}")
     print(f"\nTiming Information:")
@@ -143,13 +189,17 @@ def main():
     Competitors: 333, Saigon Beer, Hanoi Beer
     """
 
+    # Example task description
+    task_description = "Generate headlines for Heineken Vietnam market analysis"
+
     try:
-        # Process with the default generator and custom examples
+        # Process with the default generator
         modified_pptx, metrics = process_presentation(
             str(input_dir),
             str(output_dir),
             user_prompt,
-            generator_id="BGS_Default"  # Use the BGS_Default generator
+            generator_id="BGS_Default",
+            task_description=task_description
         )
         logging.info(f"Successfully processed presentation. Output saved to: {modified_pptx}")
 
