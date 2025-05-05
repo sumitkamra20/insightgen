@@ -18,10 +18,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV STORAGE_MODE=gcs
-ENV PORT=8080
+ENV PORT=8090
 
 # Expose the port
-EXPOSE 8080
+EXPOSE 8090
 
 # Run the API server using the run_api.py script
 CMD ["python", "run_api.py"]
