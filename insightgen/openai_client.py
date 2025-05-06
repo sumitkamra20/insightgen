@@ -2,13 +2,73 @@ import os
 import base64
 from openai import OpenAI
 import logging
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Optional
 from dotenv import load_dotenv
 import time
 from datetime import datetime
 import concurrent.futures
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# ===== NEW API CLIENT FUNCTIONS =====
+
+def get_openai_client():
+    """Get configured OpenAI client instance"""
+    # Try to load from .env file, but continue if it doesn't exist
+    try:
+        load_dotenv()
+    except:
+        pass
+
+    openai_api_key = os.getenv('OPENAI_API')
+    if not openai_api_key:
+        raise ValueError("Missing OPENAI_API key in environment variables.")
+
+    return OpenAI(api_key=openai_api_key)
+
+def generate_completion(
+    client: OpenAI,
+    model: str,
+    messages: List[Dict[str, Any]],
+    temperature: float = 0.7,
+    max_tokens: int = 2000
+) -> Tuple[Optional[str], Optional[str]]:
+    """Generate a chat completion from OpenAI"""
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            messages=messages
+        )
+        return response.choices[0].message.content.strip(), None
+    except Exception as e:
+        logging.error(f"OpenAI API error: {str(e)}")
+        return None, str(e)
+
+def generate_image_completion(
+    client: OpenAI,
+    model: str,
+    messages: List[Dict[str, Any]],
+    temperature: float = 0.7,
+    max_tokens: int = 2000
+) -> Tuple[Optional[str], Optional[str]]:
+    """Generate a completion that includes image analysis"""
+    # This is the same as generate_completion for now, but may be enhanced in the future
+    # for image-specific optimizations
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            messages=messages
+        )
+        return response.choices[0].message.content.strip(), None
+    except Exception as e:
+        logging.error(f"OpenAI API error: {str(e)}")
+        return None, str(e)
+
+# ===== EXISTING FUNCTIONS, KEPT FOR BACKWARDS COMPATIBILITY =====
 
 def encode_image_to_base64(image_path: str) -> str:
     """
@@ -42,6 +102,8 @@ def generate_observation_for_slide(
     """
     Generate observations for a single slide.
 
+    DEPRECATED: Use headline_service.generate_observation_for_slide instead.
+
     Args:
         slide_number (int): The slide number
         slide (Dict[str, Any]): The slide data
@@ -60,6 +122,8 @@ def generate_observation_for_slide(
             - A boolean indicating success or failure
             - A status message
     """
+    logging.warning("DEPRECATED: Use headline_service.generate_observation_for_slide instead.")
+
     # Skip non-content slides
     if not slide.get("content_slide"):
         slide["slide_observations"] = ""
@@ -128,6 +192,8 @@ def generate_observations_parallel(
     """
     Generate observations for all content slides in parallel, processing images in batches.
 
+    DEPRECATED: Use headline_service.generate_observations_parallel instead.
+
     Args:
         slide_data (Dict[int, Dict[str, Any]]): Dictionary containing slide metadata
         client (OpenAI): The OpenAI client
@@ -145,6 +211,8 @@ def generate_observations_parallel(
             - The updated slide_data dictionary
             - Metrics about the observation generation process
     """
+    logging.warning("DEPRECATED: Use headline_service.generate_observations_parallel instead.")
+
     # Initialize metrics
     metrics = {
         "content_slides_processed": 0,
@@ -267,6 +335,8 @@ def generate_headlines_sequential(
     """
     Generate headlines for all content slides sequentially, maintaining context between slides.
 
+    DEPRECATED: Use headline_service.generate_headlines_sequential instead.
+
     Args:
         slide_data (Dict[int, Dict[str, Any]]): Dictionary containing slide metadata with observations
         client (OpenAI): The OpenAI client
@@ -281,6 +351,8 @@ def generate_headlines_sequential(
             - The updated slide_data dictionary
             - Metrics about the headline generation process
     """
+    logging.warning("DEPRECATED: Use headline_service.generate_headlines_sequential instead.")
+
     # Initialize metrics
     metrics = {
         "headlines_generated": 0,
@@ -370,6 +442,8 @@ def generate_observations_and_headlines(
     1) Generates textual observations for each content slide using parallel processing
     2) Generates headlines sequentially while maintaining context of previous headlines
 
+    DEPRECATED: Use insightgen.services.headline_service.generate_headlines instead.
+
     Args:
         slide_data (dict): Dictionary containing slide metadata
         user_prompt (str): User prompt with market and brand information
@@ -389,6 +463,8 @@ def generate_observations_and_headlines(
             - The updated slide_data dictionary
             - A metrics dictionary with performance statistics
     """
+    logging.warning("DEPRECATED: Use insightgen.services.headline_service.generate_headlines instead.")
+
     # Initialize metrics
     start_time = time.time()
     total_slides = len(slide_data)
