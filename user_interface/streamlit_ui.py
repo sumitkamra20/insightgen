@@ -166,6 +166,11 @@ if "is_authenticated" not in st.session_state:
 
 # TEMPORARY: Bypass authentication for testing
 st.session_state.is_authenticated = True
+# Also initialize other required session state variables for authentication
+if "user" not in st.session_state:
+    st.session_state.user = {"full_name": "Test User", "username": "testuser"}
+if "auth_token" not in st.session_state:
+    st.session_state.auth_token = "dummy_token"
 
 # Add registration session state variables
 if "registration_successful" not in st.session_state:
