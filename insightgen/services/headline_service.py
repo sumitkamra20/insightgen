@@ -485,26 +485,3 @@ def generate_headlines(
     logging.info(f"End Time: {metrics['end_time']}")
 
     return slide_metadata, metrics
-
-# Compatibility function with the same signature as the original
-def generate_observations_and_headlines(
-    slide_metadata: Dict,
-    user_prompt: str,
-    pdf_file_content: Optional[bytes] = None,
-    generator_id: Optional[str] = None,
-    additional_system_instructions: str = "",
-    context_window_size: Optional[int] = None,
-    few_shot_examples: Optional[str] = None,
-    parallel_slides: Optional[int] = None,
-    batch_size: int = 10
-) -> Tuple[Dict, Dict]:
-    """Compatibility wrapper that maintains the old function signature."""
-    return generate_headlines(
-        slide_metadata,
-        user_prompt,
-        pdf_file_content=pdf_file_content,
-        generator_id=generator_id,
-        context_window_size=context_window_size,
-        few_shot_examples=few_shot_examples,
-        batch_size=batch_size
-    )
